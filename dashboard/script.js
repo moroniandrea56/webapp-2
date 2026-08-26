@@ -1,40 +1,39 @@
 /*
- * Dashboard BrainArt — porta in JS della mappatura metriche -> visuale
- * definita in visual_engine.py / signal_processing.py.
- *
- * In produzione questi valori arriveranno dal backend Python (compute_metrics()),
- * salvati per sessione utente e recuperati qui via fetch(). Per il prototipo
- * usiamo una sessione mock con la stessa "forma" di dati.
+ * Dashboard BrainArt — recupera la sessione da /api/session (server.py,
+ * che calcola le metriche reali con eeg_source.py + signal_processing.py)
+ * e porta in JS la stessa mappatura definita in visual_engine.py per
+ * disegnare il quadro generativo su canvas.
  */
 
-const session = {
-  // le tre metriche standard prodotte da compute_metrics()
-  asymmetry: 0.42,   // -1 (withdrawal) .. +1 (approach) -> colore del quadro
-  activation: 0.58,  // 0 .. 1 -> movimento / complessità
-  signature: 0.63,   // 0 .. 1 -> forma / numero di lobi
-
-  // metriche derivate mostrate nella dashboard (fuori dallo scope di
-  // signal_processing.py, calcolate lato prodotto per il racconto della sessione)
+// Usata solo se /api/session non è raggiungibile (es. pagina aperta con un
+// semplice static file server, senza python3 server.py in esecuzione).
+const FALLBACK_SESSION = {
+  asymmetry: 0.42,
+  activation: 0.58,
+  signature: 0.63,
   readingLabel: "TENSIONE",
-  quote: "«Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i " +
-         "momenti preziosi della vita non deve dare per scontato lo scorrere del tempo.»",
+  quote: "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i " +
+         "momenti preziosi della vita non deve dare per scontato lo scorrere del tempo.",
+  preReading: { label: "INTENSO", minutes: 10.4, bpm: 75, bpmDelta: 0.01 },
+  postReading: { label: "EQUILIBRIO", flowPercent: 31 },
+};
 
-  preReading: {
-    label: "INTENSO",
-    desc: "Il tuo cuore batte forte e resta pronto ad accogliere ciò che arriva. " +
-          "I processi che portano la mente a immergersi in un pensiero richiedono spesso " +
-          "un coinvolgimento intenso, e le tue reazioni fisiologiche lo confermano.",
-    minutes: 10.4,
-    bpm: 75,
-    bpmDelta: 0.01,
-  },
+const PRE_DESCRIPTIONS = {
+  INTENSO: "Il tuo cuore batte forte e resta pronto ad accogliere ciò che arriva. " +
+           "I processi che portano la mente a immergersi in un pensiero richiedono spesso " +
+           "un coinvolgimento intenso, e le tue reazioni fisiologiche lo confermano.",
+  VIGILE: "Il tuo corpo è attento e reattivo, pronto a cogliere ogni sfumatura del testo " +
+          "che stai per leggere.",
+  CALMO: "Arrivi alla lettura in uno stato di quiete: il battito è disteso e regolare.",
+};
 
-  postReading: {
-    label: "EQUILIBRIO",
-    flowPercent: 31,
-    desc: "Con la lettura hai raggiunto uno stato di equilibrio: la mente si stabilizza " +
-          "e resta comunque ricettiva.",
-  },
+const POST_DESCRIPTIONS = {
+  QUIETE: "La lettura ti ha portato verso una quiete profonda: il battito rallenta e " +
+          "la mente si distende.",
+  FLOW: "Sei entrato in uno stato di flow: la mente segue il testo senza sforzo, " +
+        "immersa e fluida.",
+  EQUILIBRIO: "Con la lettura hai raggiunto uno stato di equilibrio: la mente si " +
+              "stabilizza e resta comunque ricettiva.",
 };
 
 /* ---------------------------------------------------------------------- */
@@ -112,27 +111,49 @@ function makeBlobPainter(canvas, { asymmetry, activation, signature, hueOverride
 }
 
 /* ---------------------------------------------------------------------- */
+/* Caricamento sessione                                                   */
+/* ---------------------------------------------------------------------- */
+
+async function loadSession() {
+  try {
+    const res = await fetch("/api/session");
+    if (!res.ok) throw new Error(`risposta ${res.status} da /api/session`);
+    return await res.json();
+  } catch (err) {
+    console.warn(
+      "Impossibile contattare /api/session (server.py non in esecuzione?): " +
+      "uso i dati di esempio.",
+      err
+    );
+    return FALLBACK_SESSION;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
 /* Bootstrap                                                              */
 /* ---------------------------------------------------------------------- */
 
-function populateText() {
-  document.getElementById("quoteText").textContent = session.quote;
+function populateText(session) {
+  document.getElementById("quoteText").textContent = `«${session.quote}»`;
   document.getElementById("readingLabel").textContent = session.readingLabel;
 
-  document.getElementById("preLabel").textContent = session.preReading.label;
-  document.getElementById("preDesc").textContent = session.preReading.desc;
-  document.getElementById("statMinutes").textContent = session.preReading.minutes.toFixed(1);
-  document.getElementById("statBpm").textContent = session.preReading.bpm;
+  const pre = session.preReading;
+  document.getElementById("preLabel").textContent = pre.label;
+  document.getElementById("preDesc").textContent =
+    PRE_DESCRIPTIONS[pre.label] || PRE_DESCRIPTIONS.VIGILE;
+  document.getElementById("statMinutes").textContent = pre.minutes.toFixed(1);
+  document.getElementById("statBpm").textContent = pre.bpm;
   document.getElementById("statDelta").textContent =
-    (session.preReading.bpmDelta >= 0 ? "+" : "") + session.preReading.bpmDelta.toFixed(2);
+    (pre.bpmDelta >= 0 ? "+" : "") + pre.bpmDelta.toFixed(2);
 
-  document.getElementById("postLabel").textContent = session.postReading.label;
-  document.getElementById("postDesc").textContent = session.postReading.desc;
-  document.getElementById("flowPercent").innerHTML =
-    `${session.postReading.flowPercent}<span>%</span>`;
+  const post = session.postReading;
+  document.getElementById("postLabel").textContent = post.label;
+  document.getElementById("postDesc").textContent =
+    POST_DESCRIPTIONS[post.label] || POST_DESCRIPTIONS.EQUILIBRIO;
+  document.getElementById("flowPercent").innerHTML = `${post.flowPercent}<span>%</span>`;
 }
 
-function initCanvases() {
+function initCanvases(session) {
   makeBlobPainter(document.getElementById("artCanvas"), {
     asymmetry: session.asymmetry,
     activation: session.activation,
@@ -140,19 +161,19 @@ function initCanvases() {
     speed: 1,
   });
 
-  // pannello "prima del testo": stato pre-lettura, sempre caldo/intenso
+  // pannello "prima del testo": intensità pre-lettura, sempre in tonalità calde
   makeBlobPainter(document.getElementById("preCanvas"), {
-    asymmetry: 0.8,
-    activation: 0.85,
+    asymmetry: session.asymmetry,
+    activation: Math.min(1, session.activation + 0.3),
     signature: session.signature,
     hueOverride: 8,
     speed: 1.3,
   });
 
-  // pannello "effetto della lettura": stato di equilibrio, verde/calmo
+  // pannello "effetto della lettura": stato di chiusura, tonalità fredde/verdi
   makeBlobPainter(document.getElementById("postCanvas"), {
-    asymmetry: 0.1,
-    activation: 0.25,
+    asymmetry: session.asymmetry,
+    activation: session.activation * 0.5,
     signature: session.signature,
     hueOverride: 150,
     speed: 0.6,
@@ -205,8 +226,11 @@ function initInteractions() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  populateText();
-  initCanvases();
+async function bootstrap() {
+  const session = await loadSession();
+  populateText(session);
+  initCanvases(session);
   initInteractions();
-});
+}
+
+document.addEventListener("DOMContentLoaded", bootstrap);
