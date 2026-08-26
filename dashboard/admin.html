@@ -88,6 +88,7 @@
     grid-template-columns: 1fr 1fr;
     gap: 12px;
   }
+  .field-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
   @media (max-width: 480px) {
     .field-grid { grid-template-columns: 1fr; }
   }
@@ -312,6 +313,84 @@
   .history-item .id { color: var(--text-faint); font-size: 11px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
   .history-item .time { color: var(--text-faint); font-size: 12px; margin-left: auto; flex: none; }
 
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 5, 15, 0.86);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .loading-overlay.visible { opacity: 1; pointer-events: auto; }
+  .loading-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 40px 32px;
+    width: 100%;
+    max-width: 300px;
+    text-align: center;
+  }
+  .loading-pulse { position: relative; width: 92px; height: 92px; flex: none; }
+  .loading-pulse span {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    animation: loading-ring 2.1s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  }
+  .loading-pulse span:nth-child(2) { animation-delay: 0.6s; }
+  .loading-pulse span:nth-child(3) { animation-delay: 1.2s; }
+  .loading-pulse::before {
+    content: "";
+    position: absolute;
+    inset: 28px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--accent), var(--accent-2));
+    box-shadow: 0 0 30px 6px rgba(155, 123, 255, 0.5);
+    animation: loading-core 1.4s ease-in-out infinite;
+  }
+  @keyframes loading-ring {
+    0% { transform: scale(0.5); opacity: 0.7; }
+    100% { transform: scale(1.4); opacity: 0; }
+  }
+  @keyframes loading-core {
+    0%, 100% { transform: scale(0.92); }
+    50% { transform: scale(1.05); }
+  }
+  .loading-title { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; }
+  .loading-message {
+    font-size: 13px;
+    color: var(--text-dim);
+    min-height: 34px;
+    line-height: 1.5;
+  }
+  .loading-bar {
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+  .loading-bar-fill {
+    height: 100%;
+    width: 40%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    animation: loading-sweep 1.3s ease-in-out infinite;
+  }
+  @keyframes loading-sweep {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(280%); }
+  }
+
   .toast {
     position: fixed;
     left: 50%;
@@ -349,9 +428,10 @@
     <div class="card">
       <p class="form-title">Tipo di esperienza</p>
       <p class="form-lede">Lo stimolo proposto al partecipante prima della rilevazione:
-      titoli ed etichette della sua dashboard si adattano di conseguenza.</p>
+      titoli ed etichette della sua dashboard si adattano di conseguenza. Puoi anche
+      impostare a mano la durata della sessione, invece di lasciarla automatica.</p>
 
-      <div class="field-grid">
+      <div class="field-grid field-grid-3">
         <div class="field">
           <label for="stimulusType">Tipo di stimolo</label>
           <select id="stimulusType">
@@ -365,6 +445,21 @@
         <div class="field">
           <label for="stimulusDetail">Dettaglio <span class="optional">(facoltativo)</span></label>
           <input type="text" id="stimulusDetail" placeholder="Es. estratto del testo letto" />
+        </div>
+        <div class="field">
+          <label for="stimulusDuration">Durata sessione</label>
+          <select id="stimulusDuration">
+            <option value="">Automatica (consigliata)</option>
+            <option value="30">30 secondi</option>
+            <option value="60">1 minuto</option>
+            <option value="120">2 minuti</option>
+            <option value="180">3 minuti</option>
+            <option value="300">5 minuti</option>
+            <option value="600">10 minuti</option>
+            <option value="900">15 minuti</option>
+            <option value="1200">20 minuti</option>
+            <option value="1800">30 minuti</option>
+          </select>
         </div>
       </div>
     </div>
@@ -448,6 +543,15 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="loading-overlay" id="loadingOverlay" role="status" aria-live="polite">
+    <div class="loading-box">
+      <div class="loading-pulse"><span></span><span></span><span></span></div>
+      <div class="loading-title">Rilevazione in corso…</div>
+      <div class="loading-message" id="loadingMessage">Connessione al dispositivo…</div>
+      <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+    </div>
+  </div>
 
 <script>
   const state = { sessions: [] }; // { id, url, customer, createdAt } — solo in memoria, per questo turno
@@ -566,10 +670,13 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
   };
 
   function readStimulusForm() {
-    return {
+    const stimulus = {
       type: document.getElementById("stimulusType").value,
       detail: document.getElementById("stimulusDetail").value.trim(),
     };
+    const durationRaw = document.getElementById("stimulusDuration").value;
+    if (durationRaw) stimulus.durationSeconds = parseInt(durationRaw, 10);
+    return stimulus;
   }
 
   function initStimulusForm() {
@@ -587,7 +694,43 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
     document.getElementById("stimulusType").value = "lettura";
     document.getElementById("stimulusDetail").value = "";
     document.getElementById("stimulusDetail").placeholder = STIMULUS_DETAIL_PLACEHOLDERS.lettura;
+    document.getElementById("stimulusDuration").value = "";
     document.getElementById("custFirstName").focus();
+  }
+
+  // Messaggi mostrati a rotazione durante la creazione della sessione, per dare
+  // la sensazione di una rilevazione reale via bracciale/cuffiette EEG anche se
+  // il calcolo server-side è in realtà quasi istantaneo (vedi MIN_LOADING_MS
+  // sotto, che tiene visibile l'animazione per un tempo minimo).
+  const LOADING_MESSAGES = [
+    "Connessione al bracciale/cuffiette…",
+    "Sincronizzazione dei sensori EEG…",
+    "Acquisizione del segnale in corso…",
+    "Elaborazione delle onde cerebrali…",
+    "Calcolo dell'asimmetria frontale…",
+    "Analisi del livello di attivazione…",
+    "Generazione della firma individuale…",
+    "Componendo il tuo quadro…",
+  ];
+  const MIN_LOADING_MS = 2800;
+  let loadingIntervalId = null;
+
+  function showLoadingOverlay() {
+    const overlay = document.getElementById("loadingOverlay");
+    const message = document.getElementById("loadingMessage");
+    let i = 0;
+    message.textContent = LOADING_MESSAGES[0];
+    overlay.classList.add("visible");
+    clearInterval(loadingIntervalId);
+    loadingIntervalId = setInterval(() => {
+      i = (i + 1) % LOADING_MESSAGES.length;
+      message.textContent = LOADING_MESSAGES[i];
+    }, 750);
+  }
+
+  function hideLoadingOverlay() {
+    clearInterval(loadingIntervalId);
+    document.getElementById("loadingOverlay").classList.remove("visible");
   }
 
   async function createSession(event) {
@@ -601,6 +744,8 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
     const btn = document.getElementById("newSessionBtn");
     btn.disabled = true;
     btn.textContent = "Generazione…";
+    showLoadingOverlay();
+    const startedAt = Date.now();
     try {
       const res = await fetch("/api/session", {
         method: "POST",
@@ -609,6 +754,11 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `risposta ${res.status}`);
+
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < MIN_LOADING_MS) {
+        await new Promise((resolve) => setTimeout(resolve, MIN_LOADING_MS - elapsed));
+      }
 
       const entry = {
         id: data.id,
@@ -625,6 +775,7 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
       showToast(`Impossibile creare la sessione: ${err.message}`, true);
       console.error(err);
     } finally {
+      hideLoadingOverlay();
       btn.disabled = false;
       btn.textContent = "+ Avvia sessione";
     }

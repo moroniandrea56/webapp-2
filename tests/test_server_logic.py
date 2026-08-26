@@ -74,20 +74,39 @@ def test_parse_customer_rejects_missing_consent(valid_customer):
 # --- validazione tipo di stimolo -------------------------------------------------
 
 def test_parse_stimulus_defaults_to_lettura_when_absent():
-    stype, detail = server._parse_stimulus({})
+    stype, detail, duration = server._parse_stimulus({})
     assert stype == "lettura"
     assert detail == ""
+    assert duration is None
 
 
 def test_parse_stimulus_accepts_known_type():
-    stype, detail = server._parse_stimulus({"stimulus": {"type": "musica", "detail": "Clair de Lune"}})
+    stype, detail, _ = server._parse_stimulus({"stimulus": {"type": "musica", "detail": "Clair de Lune"}})
     assert stype == "musica"
     assert detail == "Clair de Lune"
 
 
 def test_parse_stimulus_falls_back_for_unknown_type():
-    stype, _ = server._parse_stimulus({"stimulus": {"type": "sconosciuto"}})
+    stype, _, _ = server._parse_stimulus({"stimulus": {"type": "sconosciuto"}})
     assert stype == "lettura"
+
+
+def test_parse_stimulus_accepts_explicit_duration():
+    _, _, duration = server._parse_stimulus({"stimulus": {"durationSeconds": 90}})
+    assert duration == 90
+
+
+def test_parse_stimulus_clamps_duration_to_valid_range():
+    _, _, too_short = server._parse_stimulus({"stimulus": {"durationSeconds": 1}})
+    assert too_short == server.MIN_DURATION_SECONDS
+
+    _, _, too_long = server._parse_stimulus({"stimulus": {"durationSeconds": 100000}})
+    assert too_long == server.MAX_DURATION_SECONDS
+
+
+def test_parse_stimulus_ignores_invalid_duration():
+    _, _, duration = server._parse_stimulus({"stimulus": {"durationSeconds": "non-un-numero"}})
+    assert duration is None
 
 
 # --- rilevazione EEG simulata continua -------------------------------------------
@@ -97,3 +116,8 @@ def test_record_simulated_eeg_duration_matches_stimulus_range():
     metrics, duration = server._record_simulated_eeg("fragranza")
     assert low <= duration <= high
     assert set(metrics.keys()) == {"asymmetry", "activation", "signature"}
+
+
+def test_record_simulated_eeg_honors_explicit_duration():
+    _, duration = server._record_simulated_eeg("lettura", duration_seconds=15)
+    assert duration == 15

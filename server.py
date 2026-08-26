@@ -199,6 +199,11 @@ DURATION_RANGES_SECONDS = {
     "prodotto": (120, 300),
 }
 
+# Limiti quando l'operatore sceglie la durata a mano invece di lasciarla
+# casuale nel range del tipo di stimolo (vedi _parse_stimulus).
+MIN_DURATION_SECONDS = 10
+MAX_DURATION_SECONDS = 1800  # 30 minuti
+
 QUOTES = [
     "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i momenti "
     "preziosi della vita non deve dare per scontato lo scorrere del tempo.",
@@ -257,7 +262,7 @@ def _build_quadro_explanation(asymmetry, activation, signature):
     )
 
 
-def _record_simulated_eeg(stimulus_type):
+def _record_simulated_eeg(stimulus_type, duration_seconds=None):
     """Simula una rilevazione EEG CONTINUA per tutta la durata dell'esperienza,
     invece di un singolo chunk istantaneo: concatena un chunk al secondo (che
     SimulatedMuseSource fa ciclare tra i suoi stati mentali simulati) per la
@@ -265,10 +270,15 @@ def _record_simulated_eeg(stimulus_type):
     sull'intera registrazione — più fedele a una rilevazione "in tempo reale"
     lungo tutta l'esperienza che a un'istantanea di un secondo.
 
+    Se duration_seconds è None, la durata è casuale nel range tipico del
+    tipo di stimolo (DURATION_RANGES_SECONDS); se l'operatore ne ha scelta
+    una esplicitamente, si usa quella (già validata da _parse_stimulus).
+
     Restituisce (metrics, duration_seconds).
     """
-    low, high = DURATION_RANGES_SECONDS.get(stimulus_type, DURATION_RANGES_SECONDS[DEFAULT_STIMULUS_TYPE])
-    duration_seconds = random.randint(low, high)
+    if duration_seconds is None:
+        low, high = DURATION_RANGES_SECONDS.get(stimulus_type, DURATION_RANGES_SECONDS[DEFAULT_STIMULUS_TYPE])
+        duration_seconds = random.randint(low, high)
 
     eeg = SimulatedMuseSource(seed=random.randint(0, 1_000_000))
     chunks = [eeg.get_chunk(n_samples=eeg.SAMPLE_RATE)[0] for _ in range(duration_seconds)]
@@ -277,10 +287,11 @@ def _record_simulated_eeg(stimulus_type):
     return compute_metrics(full_recording, eeg.CHANNELS), duration_seconds
 
 
-def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail=""):
+def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail="", duration_seconds=None):
     """Simula una nuova sessione e ne calcola le metriche, per il tipo di
-    stimolo indicato (lettura, musica, degustazione, fragranza, prodotto)."""
-    metrics, duration_seconds = _record_simulated_eeg(stimulus_type)
+    stimolo indicato (lettura, musica, degustazione, fragranza, prodotto).
+    duration_seconds, se indicata, sovrascrive la durata casuale automatica."""
+    metrics, duration_seconds = _record_simulated_eeg(stimulus_type, duration_seconds)
 
     asymmetry = metrics["asymmetry"]
     activation = metrics["activation"]
@@ -340,14 +351,32 @@ def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail=
 
 
 def _parse_stimulus(body):
-    """Legge tipo e dettaglio dello stimolo dal payload; ripiega su 'lettura'
-    se assente o non riconosciuto, per restare compatibile con chi non lo invia."""
+    """Legge tipo, dettaglio e durata dello stimolo dal payload.
+
+    Ripiega su 'lettura' se il tipo è assente o non riconosciuto, per
+    restare compatibile con chi non lo invia. La durata è opzionale: se
+    l'operatore non la sceglie esplicitamente, resta None e
+    _record_simulated_eeg userà il range casuale automatico del tipo di
+    stimolo; se indicata, viene limitata a [MIN_DURATION_SECONDS,
+    MAX_DURATION_SECONDS] invece di essere scartata, così un valore fuori
+    scala non blocca la creazione della sessione.
+    """
     stimulus = (body or {}).get("stimulus") or {}
     stimulus_type = stimulus.get("type") or DEFAULT_STIMULUS_TYPE
     if stimulus_type not in STIMULUS_META:
         stimulus_type = DEFAULT_STIMULUS_TYPE
     stimulus_detail = str(stimulus.get("detail", "")).strip()
-    return stimulus_type, stimulus_detail
+
+    duration_seconds = None
+    raw_duration = stimulus.get("durationSeconds")
+    if raw_duration is not None:
+        try:
+            duration_seconds = int(round(float(raw_duration)))
+            duration_seconds = max(MIN_DURATION_SECONDS, min(MAX_DURATION_SECONDS, duration_seconds))
+        except (TypeError, ValueError):
+            duration_seconds = None
+
+    return stimulus_type, stimulus_detail, duration_seconds
 
 
 def _parse_customer(body):
@@ -456,8 +485,8 @@ def create_session():
     if error:
         return jsonify({"error": error}), 400
 
-    stimulus_type, stimulus_detail = _parse_stimulus(body)
-    payload = _generate_session_data(stimulus_type, stimulus_detail)
+    stimulus_type, stimulus_detail, duration_seconds = _parse_stimulus(body)
+    payload = _generate_session_data(stimulus_type, stimulus_detail, duration_seconds)
     payload["customer"] = customer
     payload["createdAt"] = datetime.now(timezone.utc).isoformat()
     session_id = uuid.uuid4().hex[:10]
