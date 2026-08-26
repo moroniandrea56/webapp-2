@@ -64,6 +64,76 @@
     margin-bottom: 20px;
   }
 
+  .form-title {
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+  .form-lede {
+    color: var(--text-faint);
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 0 0 18px;
+  }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 480px) {
+    .field-grid { grid-template-columns: 1fr; }
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .field label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+  }
+  .field label .optional {
+    font-weight: 400;
+    color: var(--text-faint);
+  }
+  .field input[type="text"],
+  .field input[type="email"],
+  .field input[type="tel"] {
+    font: inherit;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--text);
+  }
+  .field input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(255,255,255,0.05);
+  }
+  /* Il colore d'errore compare solo dopo un tentativo di invio fallito
+     (classe aggiunta via JS), non su un campo vuoto appena mostrato:
+     altrimenti un form appena resettato per il prossimo cliente
+     sembrerebbe già "in errore" prima ancora di essere compilato. */
+  .customer-form.attempted .field input:invalid { border-color: var(--danger); }
+
+  .consent-field {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 4px 0 20px;
+  }
+  .consent-field input { margin-top: 3px; flex: none; }
+  .consent-field span {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
   .new-session-btn {
     width: 100%;
     cursor: pointer;
@@ -99,6 +169,11 @@
   @media (max-width: 420px) {
     .result { flex-direction: column; align-items: stretch; }
     .result img { width: 100%; height: auto; max-width: 220px; margin: 0 auto; }
+  }
+  .result-name {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 4px;
   }
   .result-id {
     font-size: 11px;
@@ -185,8 +260,10 @@
     font-size: 13px;
   }
   .history-item:hover { border-color: var(--accent); }
-  .history-item .id { font-weight: 700; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-  .history-item .time { color: var(--text-faint); font-size: 12px; margin-left: auto; }
+  .history-item .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .history-item .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .history-item .id { color: var(--text-faint); font-size: 11px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .history-item .time { color: var(--text-faint); font-size: 12px; margin-left: auto; flex: none; }
 
   .toast {
     position: fixed;
@@ -218,16 +295,57 @@
     </header>
 
     <h1>Avvia una nuova sessione</h1>
-    <p class="lede">Genera la sessione per il prossimo partecipante e consegnagli il QR code
-    o il link della sua pagina personale — resterà identica ad ogni visita successiva.</p>
+    <p class="lede">Registra i dati del prossimo partecipante, genera la sua sessione e
+    consegnagli il QR code o il link della sua pagina personale — resterà identica ad
+    ogni visita successiva.</p>
 
     <div class="card">
-      <button class="new-session-btn" id="newSessionBtn" type="button">+ Nuova sessione</button>
+      <p class="form-title">Dati del partecipante</p>
+      <p class="form-lede">Servono per collegare il quadro alla persona e, se acconsente,
+      per poterglielo inviare. Nome, cognome ed email sono obbligatori.</p>
+
+      <form id="customerForm" class="customer-form" novalidate>
+        <div class="field-grid">
+          <div class="field">
+            <label for="custFirstName">Nome</label>
+            <input type="text" id="custFirstName" required autocomplete="given-name" />
+          </div>
+          <div class="field">
+            <label for="custLastName">Cognome</label>
+            <input type="text" id="custLastName" required autocomplete="family-name" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="custEmail">Email</label>
+          <input type="email" id="custEmail" required autocomplete="email" />
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <label for="custPhone">Telefono <span class="optional">(facoltativo)</span></label>
+            <input type="tel" id="custPhone" autocomplete="tel" />
+          </div>
+          <div class="field">
+            <label for="custCompany">Azienda <span class="optional">(facoltativo)</span></label>
+            <input type="text" id="custCompany" autocomplete="organization" />
+          </div>
+        </div>
+
+        <label class="consent-field">
+          <input type="checkbox" id="custConsent" required />
+          <span>Il partecipante acconsente al trattamento dei propri dati personali per
+          generare e ricevere il proprio quadro BrainArt.</span>
+        </label>
+
+        <button class="new-session-btn" id="newSessionBtn" type="submit">+ Avvia sessione</button>
+      </form>
 
       <div id="resultWrap" style="margin-top: 20px; display: none;">
         <div class="result">
           <img id="qrImage" alt="QR code della pagina personale" />
           <div class="result-info">
+            <div class="result-name" id="resultName"></div>
             <div class="result-id">ID sessione · <code id="resultId"></code></div>
             <div class="link-row">
               <a class="result-link" id="resultLink" target="_blank" rel="noopener"></a>
@@ -254,7 +372,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
-  const state = { sessions: [] }; // { id, url, createdAt } — solo in memoria, per questo turno
+  const state = { sessions: [] }; // { id, url, customer, createdAt } — solo in memoria, per questo turno
 
   function showToast(message, isError = false) {
     const toast = document.getElementById("toast");
@@ -265,8 +383,13 @@
     showToast._t = setTimeout(() => toast.classList.remove("visible"), 3000);
   }
 
+  function fullName(customer) {
+    return `${customer.firstName} ${customer.lastName}`.trim();
+  }
+
   function showResult(entry) {
     document.getElementById("resultWrap").style.display = "block";
+    document.getElementById("resultName").textContent = fullName(entry.customer);
     document.getElementById("resultId").textContent = entry.id;
     document.getElementById("qrImage").src = `/api/qrcode/${entry.id}`;
     const linkEl = document.getElementById("resultLink");
@@ -293,35 +416,76 @@
       item.type = "button";
       item.className = "history-item";
       const time = entry.createdAt.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-      item.innerHTML = `<span class="id">${entry.id}</span><span class="time">${time}</span>`;
+      item.innerHTML = `
+        <div class="who">
+          <span class="name">${fullName(entry.customer)}</span>
+          <span class="id">${entry.id}</span>
+        </div>
+        <span class="time">${time}</span>
+      `;
       item.addEventListener("click", () => showResult(entry));
       list.appendChild(item);
     }
   }
 
-  async function createSession() {
+  function readCustomerForm() {
+    return {
+      firstName: document.getElementById("custFirstName").value.trim(),
+      lastName: document.getElementById("custLastName").value.trim(),
+      email: document.getElementById("custEmail").value.trim(),
+      phone: document.getElementById("custPhone").value.trim(),
+      company: document.getElementById("custCompany").value.trim(),
+      consent: document.getElementById("custConsent").checked,
+    };
+  }
+
+  function resetCustomerForm() {
+    const form = document.getElementById("customerForm");
+    form.reset();
+    form.classList.remove("attempted");
+    document.getElementById("custFirstName").focus();
+  }
+
+  async function createSession(event) {
+    event.preventDefault();
+    const form = document.getElementById("customerForm");
+    form.classList.add("attempted");
+    if (!form.reportValidity()) return; // nome/cognome/email/consenso mancanti
+
+    const customer = readCustomerForm();
     const btn = document.getElementById("newSessionBtn");
     btn.disabled = true;
     btn.textContent = "Generazione…";
     try {
-      const res = await fetch("/api/session", { method: "POST" });
-      if (!res.ok) throw new Error(`risposta ${res.status}`);
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer }),
+      });
       const data = await res.json();
-      const entry = { id: data.id, url: `${window.location.origin}/s/${data.id}`, createdAt: new Date() };
+      if (!res.ok) throw new Error(data.error || `risposta ${res.status}`);
+
+      const entry = {
+        id: data.id,
+        url: `${window.location.origin}/s/${data.id}`,
+        customer: data.customer,
+        createdAt: new Date(),
+      };
       state.sessions.unshift(entry);
       renderHistory();
       showResult(entry);
-      showToast("Sessione creata.");
+      showToast(`Sessione creata per ${fullName(entry.customer)}.`);
+      resetCustomerForm();
     } catch (err) {
-      showToast("Impossibile creare la sessione: server non raggiungibile.", true);
+      showToast(`Impossibile creare la sessione: ${err.message}`, true);
       console.error(err);
     } finally {
       btn.disabled = false;
-      btn.textContent = "+ Nuova sessione";
+      btn.textContent = "+ Avvia sessione";
     }
   }
 
-  document.getElementById("newSessionBtn").addEventListener("click", createSession);
+  document.getElementById("customerForm").addEventListener("submit", createSession);
 
   document.getElementById("copyLinkBtn").addEventListener("click", async () => {
     const url = document.getElementById("resultLink").href;

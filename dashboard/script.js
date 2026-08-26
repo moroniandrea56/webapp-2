@@ -154,6 +154,10 @@ async function loadSession() {
 /* ---------------------------------------------------------------------- */
 
 function populateText(session) {
+  if (session.firstName) {
+    document.getElementById("crumbs").textContent = `Ciao, ${session.firstName}`;
+  }
+
   document.getElementById("quoteText").textContent = `«${session.quote}»`;
   document.getElementById("readingLabel").textContent = session.readingLabel;
 

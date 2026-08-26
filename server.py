@@ -36,6 +36,14 @@ ora anche il 5° e 6°:
 Il 1° (stimolazione sensoriale) e il 4° (spiegazione a voce del quadro)
 restano passaggi condotti dal team durante l'evento, non digitali.
 
+Ogni sessione avviata dal pannello operatore è collegata ai dati del
+partecipante (nome, cognome, email; telefono e azienda facoltativi) con
+consenso privacy obbligatorio — salvati insieme alla sessione in
+data/sessions.json. La pagina personale del partecipante (/s/<id>) espone
+solo il nome, per il saluto: gli altri dati restano visibili solo a chi
+ha creato la sessione dal pannello (risposta di POST /api/session), non
+sono raggiungibili da un endpoint pubblico separato.
+
 Esecuzione:
     pip install -r requirements.txt
     export BRAINART_ADMIN_USER=... BRAINART_ADMIN_PASSWORD=...
@@ -48,8 +56,10 @@ import io
 import json
 import os
 import random
+import re
 import threading
 import uuid
+from datetime import datetime, timezone
 
 import qrcode
 from flask import Flask, Response, abort, jsonify, request, send_file
@@ -57,6 +67,8 @@ from flask import Flask, Response, abort, jsonify, request, send_file
 import artwork_renderer
 from eeg_source import SimulatedMuseSource
 from signal_processing import compute_metrics
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = Flask(__name__, static_folder="dashboard", static_url_path="")
 
@@ -163,6 +175,43 @@ def _generate_session_data():
     }
 
 
+def _parse_customer(body):
+    """Valida i dati del partecipante inviati dal pannello operatore.
+
+    Restituisce (customer_dict, error_message). `customer_dict` è None se
+    il payload non conteneva alcun campo cliente (es. la sessione creata
+    in autonomia dalla pagina partecipante, senza passare dal pannello):
+    in quel caso non si applica nessuna validazione, per non rompere quel
+    flusso pubblico esistente.
+    """
+    customer = (body or {}).get("customer")
+    if not customer:
+        return None, None
+
+    first_name = str(customer.get("firstName", "")).strip()
+    last_name = str(customer.get("lastName", "")).strip()
+    email = str(customer.get("email", "")).strip()
+    phone = str(customer.get("phone", "")).strip()
+    company = str(customer.get("company", "")).strip()
+    consent = customer.get("consent") is True
+
+    if not first_name or not last_name:
+        return None, "Nome e cognome del partecipante sono obbligatori."
+    if not email or not _EMAIL_RE.match(email):
+        return None, "Indirizzo email del partecipante mancante o non valido."
+    if not consent:
+        return None, "Il consenso privacy del partecipante è obbligatorio."
+
+    return {
+        "firstName": first_name,
+        "lastName": last_name,
+        "email": email,
+        "phone": phone,
+        "company": company,
+        "consent": True,
+    }, None
+
+
 def _get_session_or_404(session_id):
     with _sessions_lock:
         sessions = _load_sessions()
@@ -202,8 +251,21 @@ def _require_admin_login():
 
 @app.route("/api/session", methods=["POST"])
 def create_session():
-    """Crea una nuova sessione e la rende persistente con un id stabile."""
+    """Crea una nuova sessione e la rende persistente con un id stabile.
+
+    Se il corpo della richiesta include un oggetto "customer" (nome, cognome,
+    email, consenso privacy — inviato dal form del pannello operatore), viene
+    validato e salvato insieme alla sessione. Se non presente, si comporta
+    come prima: nessun dato personale, nessuna validazione (lo usa anche la
+    pagina partecipante per crearsi da sola una sessione al primo accesso).
+    """
+    customer, error = _parse_customer(request.get_json(silent=True))
+    if error:
+        return jsonify({"error": error}), 400
+
     payload = _generate_session_data()
+    payload["customer"] = customer
+    payload["createdAt"] = datetime.now(timezone.utc).isoformat()
     session_id = uuid.uuid4().hex[:10]
 
     with _sessions_lock:
@@ -216,9 +278,17 @@ def create_session():
 
 @app.route("/api/session/<session_id>")
 def get_session(session_id):
-    """Recupera una sessione già generata: la pagina resta identica ad ogni visita."""
+    """Recupera una sessione già generata: la pagina resta identica ad ogni visita.
+
+    Espone solo il nome del partecipante (per il saluto in dashboard), non
+    l'intero oggetto customer: email/telefono/azienda restano visibili solo
+    a chi ha creato la sessione dal pannello operatore.
+    """
     data = _get_session_or_404(session_id)
-    return jsonify({**data, "id": session_id})
+    customer = data.get("customer")
+    public_data = {k: v for k, v in data.items() if k != "customer"}
+    public_data["firstName"] = customer["firstName"] if customer else None
+    return jsonify({**public_data, "id": session_id})
 
 
 @app.route("/api/qrcode/<session_id>")
