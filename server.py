@@ -471,14 +471,15 @@ def create_session():
 def get_session(session_id):
     """Recupera una sessione già generata: la pagina resta identica ad ogni visita.
 
-    Espone solo il nome del partecipante (per il saluto in dashboard), non
-    l'intero oggetto customer: email/telefono/azienda restano visibili solo
-    a chi ha creato la sessione dal pannello operatore.
+    Espone solo nome e cognome del partecipante (per intestare la sua stessa
+    pagina), non l'intero oggetto customer: email/telefono/azienda restano
+    visibili solo a chi ha creato la sessione dal pannello operatore.
     """
     data = _get_session_or_404(session_id)
     customer = data.get("customer")
     public_data = {k: v for k, v in data.items() if k != "customer"}
     public_data["firstName"] = customer["firstName"] if customer else None
+    public_data["lastName"] = customer["lastName"] if customer else None
     return jsonify({**public_data, "id": session_id})
 
 

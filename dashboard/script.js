@@ -178,11 +178,25 @@ function populateText(session) {
     document.getElementById("crumbs").textContent = `Ciao, ${session.firstName}`;
   }
 
+  const stimulus = session.stimulus || FALLBACK_SESSION.stimulus;
+
+  const fullName = [session.firstName, session.lastName].filter(Boolean).join(" ");
+  document.getElementById("sessionName").textContent = fullName || "La tua sessione BrainArt";
+
+  if (session.createdAt) {
+    const date = new Date(session.createdAt);
+    document.getElementById("sessionDate").textContent = date.toLocaleDateString("it-IT", {
+      day: "numeric", month: "long", year: "numeric",
+    });
+  } else {
+    document.getElementById("sessionDate").textContent = "Sessione dimostrativa";
+  }
+  document.getElementById("sessionStimulusBadge").textContent = stimulus.label;
+
   document.getElementById("quoteText").textContent = `«${session.quote}»`;
   document.getElementById("readingLabel").textContent = session.readingLabel;
   document.getElementById("quadroExplanation").textContent = session.quadroExplanation;
 
-  const stimulus = session.stimulus || FALLBACK_SESSION.stimulus;
   document.getElementById("quoteCaption").textContent = stimulus.quoteCaption;
   document.getElementById("stimulusTagLabel").textContent = stimulus.tagLabel;
   document.getElementById("preTitle").innerHTML = stimulus.preTitle.replace("\n", "<br/>");
