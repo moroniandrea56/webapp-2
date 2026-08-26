@@ -5,11 +5,16 @@ Espone via HTTP la pipeline BrainArt (eeg_source -> signal_processing) e
 serve la dashboard statica in dashboard/.
 
 Le sessioni sono PERSISTENTI: quando un visitatore arriva senza un id di
-sessione, ne viene creata una nuova e salvata su disco in
-data/sessions.json. Da quel momento la sua pagina personale (/s/<id>)
-mostrerà sempre lo stesso quadro, esattamente come la dashboard reale
-raggiunta via QR code dopo l'evento: ricaricare o condividere il link non
-genera una nuova opera.
+sessione, ne viene creata una nuova e salvata su SQLite (db.py, file
+data/brainart.sqlite3) — pensato per un uso quotidiano continuativo, non
+solo i picchi di un evento: a differenza di un unico file JSON riscritto
+per intero a ogni sessione, SQLite scala su mesi di dati e gestisce
+correttamente più operatori che scrivono nello stesso momento. Da quel
+momento la sua pagina personale (/s/<id>) mostrerà sempre lo stesso
+quadro, esattamente come la dashboard reale raggiunta via QR code dopo
+l'evento: ricaricare o condividere il link non genera una nuova opera.
+Chi aveva già un data/sessions.json da una versione precedente può
+importarlo con `python3 migrate_json_to_sqlite.py`, una tantum.
 
 La rilevazione EEG è simulata ma CONTINUA (_record_simulated_eeg): invece
 di un singolo chunk istantaneo, concatena un chunk al secondo — che
@@ -44,20 +49,30 @@ restano passaggi condotti dal team durante l'evento, non digitali.
 
 Ogni sessione avviata dal pannello operatore è collegata ai dati del
 partecipante (nome, cognome, email; telefono e azienda facoltativi) con
-consenso privacy obbligatorio — salvati insieme alla sessione in
-data/sessions.json. La pagina personale del partecipante (/s/<id>) espone
+consenso privacy obbligatorio — salvati insieme alla sessione nel database
+(db.py). La pagina personale del partecipante (/s/<id>) espone
 solo il nome, per il saluto: gli altri dati restano visibili solo a chi
 ha creato la sessione dal pannello (risposta di POST /api/session), non
 sono raggiungibili da un endpoint pubblico separato.
 
 Il pannello /admin/sessions elenca tutte le sessioni con dati cliente
-salvati e permette di cancellarle (diritto di cancellazione), oppure di
-inviare via email il quadro al partecipante (richiede la configurazione
-SMTP in email_sender.py — se assente, l'endpoint risponde con un errore
-chiaro invece di fallire in silenzio). Titolare e contatti mostrati
-nell'informativa privacy si configurano con BRAINART_DATA_CONTROLLER_NAME
-e BRAINART_DATA_CONTROLLER_EMAIL — il testo in dashboard/admin.html è un
-MODELLO generico, da far rivedere a un legale/DPO prima di un uso reale.
+salvati (filtrabili per data di creazione, comodo con un uso quotidiano
+che accumula sessioni nel tempo) e permette di cancellarle (diritto di
+cancellazione), oppure di inviare via email il quadro al partecipante
+(richiede la configurazione SMTP in email_sender.py — se assente,
+l'endpoint risponde con un errore chiaro invece di fallire in silenzio).
+Titolare e contatti mostrati nell'informativa privacy si configurano con
+BRAINART_DATA_CONTROLLER_NAME e BRAINART_DATA_CONTROLLER_EMAIL — il testo
+in dashboard/admin.html è un MODELLO generico, da far rivedere a un
+legale/DPO prima di un uso reale.
+
+L'informativa dichiara una conservazione di BRAINART_RETENTION_MONTHS
+mesi (default 12): POST /api/sessions/cleanup (admin) cancella le
+sessioni più vecchie di quel periodo, rendendo vera la dichiarazione
+invece che solo scritta. Gira anche una volta automaticamente a ogni
+avvio del server. Per un'automazione quotidiana senza riavviare il
+server, va richiamato periodicamente (cron, o un vero deployment con uno
+scheduler) — qui non c'è un processo in background che lo fa da solo.
 
 Lo stimolo che genera la sessione non è per forza una lettura: il "come
 funziona" ufficiale prevede musica, degustazione, fragranza o prodotto
@@ -78,25 +93,25 @@ Esecuzione:
     export BRAINART_DATA_CONTROLLER_NAME=... BRAINART_DATA_CONTROLLER_EMAIL=...
     export BRAINART_OSC_IP=... BRAINART_OSC_PORT=...   # opzionale
     export BRAINART_SMTP_HOST=... BRAINART_SMTP_USER=... BRAINART_SMTP_PASSWORD=...  # opzionale
+    export BRAINART_RETENTION_MONTHS=...  # opzionale, default 12
     python3 server.py
     apri http://localhost:5000        (dashboard partecipante)
     apri http://localhost:5000/admin  (pannello operatore, richiede login)
 """
 
 import io
-import json
 import os
 import random
 import re
-import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import qrcode
 from flask import Flask, Response, abort, jsonify, request, send_file
 
 import artwork_renderer
+import db
 import email_sender
 from eeg_source import SimulatedMuseSource
 from osc_sender import OSCSender
@@ -105,10 +120,11 @@ from signal_processing import compute_metrics
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 app = Flask(__name__, static_folder="dashboard", static_url_path="")
+# Nessuna chiamata a db.init_db() qui: lo schema si crea da solo alla prima
+# connessione reale (vedi db.py), non all'import del modulo — così importare
+# server.py per testarne le funzioni pure non tocca il database sul disco.
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
-_sessions_lock = threading.Lock()
+RETENTION_MONTHS = int(os.environ.get("BRAINART_RETENTION_MONTHS", "12"))
 
 ADMIN_USERNAME = os.environ.get("BRAINART_ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("BRAINART_ADMIN_PASSWORD", "brainart")
@@ -191,19 +207,6 @@ QUOTES = [
     "Non è la felicità a cui devi mirare, ma l'amore con cui fai le cose.",
     "Ogni istante che lasci scorrere senza guardarlo è un istante che non torna più.",
 ]
-
-
-def _load_sessions():
-    if not os.path.exists(SESSIONS_FILE):
-        return {}
-    with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _save_sessions(sessions):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(sessions, f, ensure_ascii=False, indent=2)
 
 
 def _reading_label(asymmetry, activation):
@@ -385,11 +388,10 @@ def _parse_customer(body):
 
 
 def _get_session_or_404(session_id):
-    with _sessions_lock:
-        sessions = _load_sessions()
-    if session_id not in sessions:
+    data = db.get_session(session_id)
+    if data is None:
         abort(404, description=f"Sessione '{session_id}' non trovata")
-    return sessions[session_id]
+    return data
 
 
 def _admin_authorized(auth):
@@ -413,6 +415,7 @@ def _require_admin_login():
     is_admin_api = (
         request.path.startswith("/api/qrcode/")
         or request.path == "/api/sessions"
+        or request.path == "/api/sessions/cleanup"
         or (request.path.startswith("/api/session/") and request.method == "DELETE")
         or request.path.endswith("/send-email")
     )
@@ -434,6 +437,7 @@ def config():
     return jsonify({
         "dataControllerName": DATA_CONTROLLER_NAME,
         "dataControllerEmail": DATA_CONTROLLER_EMAIL,
+        "retentionMonths": RETENTION_MONTHS,
     })
 
 
@@ -458,10 +462,7 @@ def create_session():
     payload["createdAt"] = datetime.now(timezone.utc).isoformat()
     session_id = uuid.uuid4().hex[:10]
 
-    with _sessions_lock:
-        sessions = _load_sessions()
-        sessions[session_id] = payload
-        _save_sessions(sessions)
+    db.save_session(session_id, payload)
 
     return jsonify({**payload, "id": session_id}), 201
 
@@ -488,13 +489,18 @@ def list_sessions():
     Le sessioni anonime (create dalla pagina partecipante senza passare dal
     pannello, quindi senza oggetto customer) non compaiono qui: non c'è un
     "cliente" da gestire.
-    """
-    with _sessions_lock:
-        sessions = _load_sessions()
 
+    Filtrabile per data di creazione con i parametri di query ?from=YYYY-MM-DD
+    e/o ?to=YYYY-MM-DD (comodo con un uso quotidiano che accumula sessioni
+    nel tempo, invece di scorrere sempre l'elenco intero).
+    """
+    date_from = request.args.get("from") or None
+    date_to = request.args.get("to") or None
+
+    sessions = db.list_sessions_with_customer(date_from=date_from, date_to=date_to)
     items = [
         {
-            "id": session_id,
+            "id": data["id"],
             "customer": data["customer"],
             "createdAt": data.get("createdAt"),
             "readingLabel": data.get("readingLabel"),
@@ -502,10 +508,8 @@ def list_sessions():
             "stimulus": data.get("stimulus"),
             "emailSentAt": data.get("emailSentAt"),
         }
-        for session_id, data in sessions.items()
-        if data.get("customer")
+        for data in sessions
     ]
-    items.sort(key=lambda item: item["createdAt"] or "", reverse=True)
     return jsonify(items)
 
 
@@ -516,14 +520,19 @@ def delete_session(session_id):
     Copre il diritto di cancellazione (art. 17 GDPR): dopo questa chiamata
     l'id non è più risolvibile né da /s/<id> né da nessun altro endpoint.
     """
-    with _sessions_lock:
-        sessions = _load_sessions()
-        if session_id not in sessions:
-            abort(404, description=f"Sessione '{session_id}' non trovata")
-        del sessions[session_id]
-        _save_sessions(sessions)
+    if not db.delete_session(session_id):
+        abort(404, description=f"Sessione '{session_id}' non trovata")
 
     return jsonify({"deleted": session_id})
+
+
+@app.route("/api/sessions/cleanup", methods=["POST"])
+def cleanup_old_sessions():
+    """Cancella le sessioni più vecchie del periodo di conservazione dichiarato
+    nell'informativa privacy (BRAINART_RETENTION_MONTHS, default 12 mesi)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_MONTHS * 30)
+    deleted = db.delete_sessions_older_than(cutoff.isoformat())
+    return jsonify({"deleted": deleted, "cutoff": cutoff.isoformat(), "retentionMonths": RETENTION_MONTHS})
 
 
 @app.route("/api/session/<session_id>/send-email", methods=["POST"])
@@ -555,11 +564,7 @@ def send_session_email(session_id):
         return jsonify({"error": f"Invio fallito: {err}"}), 502
 
     sent_at = datetime.now(timezone.utc).isoformat()
-    with _sessions_lock:
-        sessions = _load_sessions()
-        if session_id in sessions:
-            sessions[session_id]["emailSentAt"] = sent_at
-            _save_sessions(sessions)
+    db.set_email_sent(session_id, sent_at)
 
     return jsonify({"sent": True, "sentAt": sent_at})
 
@@ -646,4 +651,10 @@ if __name__ == "__main__":
         + ("configurato." if email_sender.smtp_configured() else
            "non configurato (imposta BRAINART_SMTP_HOST/USER/PASSWORD per attivarlo).")
     )
+
+    _cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_MONTHS * 30)
+    _deleted = db.delete_sessions_older_than(_cutoff.isoformat())
+    if _deleted:
+        print(f"Pulizia dati: cancellate {_deleted} sessioni più vecchie di {RETENTION_MONTHS} mesi.")
+
     app.run(debug=True, port=5000)

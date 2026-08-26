@@ -470,14 +470,14 @@
   // BRAINART_DATA_CONTROLLER_NAME/EMAIL). NON è consulenza legale: va fatta
   // rivedere da un legale/DPO prima di un uso reale, in particolare i tempi
   // di conservazione qui indicati a titolo di esempio.
-  function buildPrivacyText({ dataControllerName, dataControllerEmail }) {
+  function buildPrivacyText({ dataControllerName, dataControllerEmail, retentionMonths }) {
     return `Titolare del trattamento: ${dataControllerName} — contatti: ${dataControllerEmail}
 
 Finalità: i dati raccolti (nome, cognome, email, telefono, azienda) sono trattati per generare il quadro BrainArt associato alla sessione, consegnarne una copia digitale e/o stampata, e per l'eventuale invio successivo del file al partecipante. I segnali EEG rilevati durante l'esperienza sono elaborati solo in forma di metriche aggregate (colore, forma, movimento), non a fini diagnostici.
 
 Base giuridica: consenso dell'interessato (art. 6.1.a GDPR).
 
-Conservazione: per il tempo necessario alle finalità indicate e comunque non oltre 12 mesi dalla raccolta, salvo revoca del consenso o richiesta di cancellazione anticipata.
+Conservazione: per il tempo necessario alle finalità indicate e comunque non oltre ${retentionMonths} mesi dalla raccolta, salvo revoca del consenso o richiesta di cancellazione anticipata. Trascorso questo periodo i dati vengono cancellati automaticamente.
 
 Diritti dell'interessato: accesso, rettifica, cancellazione, limitazione o opposizione al trattamento, scrivendo a ${dataControllerEmail}. La cancellazione può essere effettuata anche dallo staff dal pannello "Sessioni salvate".
 

@@ -183,6 +183,46 @@
   }
   .toast.visible { opacity: 1; transform: translate(-50%, 0); }
   .toast.error { border-color: var(--danger); }
+
+  .date-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .date-filter label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .date-filter input[type="date"] {
+    font: inherit;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: var(--text);
+  }
+  .date-filter input[type="date"]:focus { outline: none; border-color: var(--accent); }
+
+  .cleanup-card {
+    margin-top: 32px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--card), var(--card-2));
+  }
+  .cleanup-title { font-size: 13px; font-weight: 700; margin: 0 0 6px; }
+  .cleanup-text {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin: 0 0 14px;
+    max-width: 60ch;
+  }
 </style>
 </head>
 <body>
@@ -202,9 +242,24 @@
       <span class="count-badge" id="countBadge"></span>
     </div>
 
+    <div class="date-filter">
+      <label>Da <input type="date" id="dateFrom" /></label>
+      <label>A <input type="date" id="dateTo" /></label>
+      <button class="btn" id="clearDatesBtn" type="button">Azzera date</button>
+    </div>
+
     <div id="listWrap">
       <div class="status" id="statusMsg">Caricamento…</div>
       <div class="session-list" id="sessionList"></div>
+    </div>
+
+    <div class="cleanup-card">
+      <p class="cleanup-title">Pulizia dati vecchi</p>
+      <p class="cleanup-text">L'informativa privacy dichiara una conservazione di
+      <strong id="retentionMonthsLabel">…</strong> mesi. Questa azione cancella
+      definitivamente le sessioni più vecchie di quel periodo — la stessa pulizia
+      che gira automaticamente a ogni avvio del server.</p>
+      <button class="btn btn-danger" id="cleanupBtn" type="button">Cancella sessioni scadute</button>
     </div>
   </div>
 
@@ -304,8 +359,14 @@
 
   async function loadSessions() {
     const statusMsg = document.getElementById("statusMsg");
+    const dateFrom = document.getElementById("dateFrom").value;
+    const dateTo = document.getElementById("dateTo").value;
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("from", dateFrom);
+    if (dateTo) params.set("to", dateTo);
+
     try {
-      const res = await fetch("/api/sessions");
+      const res = await fetch(`/api/sessions?${params.toString()}`);
       if (!res.ok) throw new Error(`risposta ${res.status}`);
       allSessions = await res.json();
       renderList();
@@ -314,6 +375,44 @@
       statusMsg.style.display = "block";
       console.error(err);
     }
+  }
+
+  function initDateFilter() {
+    document.getElementById("dateFrom").addEventListener("change", loadSessions);
+    document.getElementById("dateTo").addEventListener("change", loadSessions);
+    document.getElementById("clearDatesBtn").addEventListener("click", () => {
+      document.getElementById("dateFrom").value = "";
+      document.getElementById("dateTo").value = "";
+      loadSessions();
+    });
+  }
+
+  async function initCleanup() {
+    const label = document.getElementById("retentionMonthsLabel");
+    let retentionMonths = "12";
+    try {
+      const config = await (await fetch("/api/config")).json();
+      retentionMonths = config.retentionMonths;
+    } catch (err) {
+      console.error(err);
+    }
+    label.textContent = retentionMonths;
+
+    document.getElementById("cleanupBtn").addEventListener("click", async () => {
+      if (!window.confirm(`Cancellare definitivamente tutte le sessioni più vecchie di ${retentionMonths} mesi? L'operazione non è reversibile.`)) {
+        return;
+      }
+      try {
+        const res = await fetch("/api/sessions/cleanup", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `risposta ${res.status}`);
+        showToast(data.deleted > 0 ? `${data.deleted} sessioni scadute cancellate.` : "Nessuna sessione da cancellare.");
+        loadSessions();
+      } catch (err) {
+        showToast(err.message || "Impossibile completare la pulizia.", true);
+        console.error(err);
+      }
+    });
   }
 
   async function sendSessionEmail(id, name, email) {
@@ -350,6 +449,8 @@
   }
 
   document.getElementById("searchInput").addEventListener("input", renderList);
+  initDateFilter();
+  initCleanup();
   loadSessions();
 </script>
 </body>

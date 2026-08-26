@@ -3,10 +3,10 @@ conftest.py
 ============
 Fixture condivise per la suite di test (tests/).
 
-La fixture `app` isola ogni test dal file data/sessions.json reale:
-reindirizza server.py verso una cartella temporanea per la durata del
-singolo test, così i test non toccano né dipendono da sessioni salvate in
-precedenza (e non lasciano residui nel repo).
+La fixture `app` isola ogni test dal database SQLite reale: reindirizza
+db.py verso un file temporaneo (con schema appena creato) per la durata
+del singolo test, così i test non toccano né dipendono da sessioni salvate
+in precedenza (e non lasciano residui nel repo).
 """
 
 import base64
@@ -16,10 +16,12 @@ import pytest
 
 @pytest.fixture
 def app(tmp_path, monkeypatch):
+    import db
     import server
 
-    monkeypatch.setattr(server, "DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(server, "SESSIONS_FILE", str(tmp_path / "sessions.json"))
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "test.sqlite3"))
+    db.init_db()
+
     server.app.config.update(TESTING=True)
     return server.app
 

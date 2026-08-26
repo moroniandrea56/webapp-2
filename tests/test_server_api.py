@@ -126,6 +126,46 @@ def test_list_sessions_excludes_anonymous_sessions(client, admin_auth, valid_cus
     assert items[0]["customer"]["firstName"] == "Mario"
 
 
+def test_list_sessions_can_be_filtered_by_date(client, admin_auth, valid_customer, monkeypatch):
+    import db
+    _create_session(client, customer=valid_customer)
+
+    # forza la sessione appena creata fuori dall'intervallo richiesto,
+    # sovrascrivendola direttamente nello storage (senza passare da un'altra
+    # POST, che genererebbe un secondo id da tracciare a parte)
+    items_before = client.get("/api/sessions", headers=admin_auth).get_json()
+    session_id = items_before[0]["id"]
+    payload = db.get_session(session_id)
+    payload["createdAt"] = "2020-01-01T00:00:00+00:00"
+    db.save_session(session_id, payload)
+
+    res_out_of_range = client.get("/api/sessions?from=2026-01-01", headers=admin_auth)
+    assert res_out_of_range.get_json() == []
+
+    res_in_range = client.get("/api/sessions?to=2020-12-31", headers=admin_auth)
+    assert len(res_in_range.get_json()) == 1
+
+
+# --- pulizia dati oltre il periodo di conservazione -------------------------------
+
+def test_cleanup_requires_login(client):
+    assert client.post("/api/sessions/cleanup").status_code == 401
+
+
+def test_cleanup_removes_only_sessions_older_than_retention(client, admin_auth, valid_customer):
+    import db
+
+    created = _create_session(client, customer=valid_customer).get_json()
+    payload = db.get_session(created["id"])
+    payload["createdAt"] = "2000-01-01T00:00:00+00:00"  # ben oltre qualunque retention
+    db.save_session(created["id"], payload)
+
+    res = client.post("/api/sessions/cleanup", headers=admin_auth)
+    assert res.status_code == 200
+    assert res.get_json()["deleted"] == 1
+    assert client.get(f"/api/session/{created['id']}").status_code == 404
+
+
 def test_qrcode_requires_login(client):
     created = _create_session(client).get_json()
     assert client.get(f"/api/qrcode/{created['id']}").status_code == 401
