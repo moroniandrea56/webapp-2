@@ -82,6 +82,11 @@ main {
   flex-direction: column;
   gap: 16px;
 }
+/* Su mobile/tablet i wrapper di colonna non devono creare una spaziatura
+   propria: "display: contents" li rende invisibili al layout, così le card
+   al loro interno restano figlie dirette di main (stesso gap di prima).
+   Il desktop (sotto) li trasforma in vere colonne. */
+.col-primary, .col-secondary { display: contents; }
 
 .card {
   background: linear-gradient(180deg, var(--bg-card), var(--bg-card-2));
@@ -412,4 +417,51 @@ main {
   padding: 8px 12px;
   font-size: 12px;
   flex: none;
+}
+
+/* ===================== ADATTAMENTO AL DISPOSITIVO =====================
+   Tutto quello sopra è pensato mobile-first (colonna singola stretta,
+   giusta per un telefono). Da qui in giù si adatta a schermi più larghi:
+   va messo in fondo al foglio di stile perché le regole qui sotto hanno
+   la STESSA specificità di quelle sopra (stesso selettore, es. "main") —
+   in CSS a parità di specificità vince chi viene dopo nel file, non chi
+   sta dentro una @media: se questo blocco stesse più in alto, le regole
+   base più in basso lo sovrascriverebbero silenziosamente su ogni
+   larghezza, inclusa quella desktop (bug capitato scrivendo queste
+   regole la prima volta — tienilo a mente se le sposti). */
+
+/* Tablet: la colonna mobile resta unica ma più larga, con più respiro. */
+@media (min-width: 640px) {
+  .app { max-width: 640px; }
+  .section-title { font-size: 30px; }
+}
+
+/* Desktop: la colonna singola pensata per un telefono sprecherebbe la
+   maggior parte dello schermo. Da qui in su il quadro (col-primary) sta a
+   sinistra e le sezioni di dettaglio a destra, in due colonne affiancate —
+   lo stesso contenuto, riorganizzato per lo spazio disponibile invece di
+   restare una singola colonna centrata con vuoto ai lati.
+
+   NON è "position: sticky" sulla colonna sinistra: il quadro (col-primary)
+   ha di solito PIÙ contenuto della colonna destra (immagine + spiegazione +
+   citazione), quindi è quasi sempre la colonna più alta — non resterebbe
+   mai spazio perché possa "fluttuare" mentre l'altra scorre, e sticky
+   risulterebbe silenziosamente inerte. Scorrono insieme, così è coerente
+   in ogni caso invece di funzionare solo quando il contenuto è corto. */
+@media (min-width: 1024px) {
+  .app { max-width: 1080px; padding-bottom: 64px; }
+  .topbar { padding: 32px 0 8px; }
+  .session-banner { margin: 0 0 16px; }
+  main {
+    display: grid;
+    grid-template-columns: minmax(360px, 460px) 1fr;
+    align-items: start;
+    gap: 28px;
+    padding: 8px 0 0;
+  }
+  .col-primary, .col-secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
 }
