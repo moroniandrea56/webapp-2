@@ -5,15 +5,21 @@ Espone via HTTP la pipeline BrainArt (eeg_source -> signal_processing) e
 serve la dashboard statica in dashboard/.
 
 Le sessioni sono PERSISTENTI: quando un visitatore arriva senza un id di
-sessione, ne viene creata una nuova (un chunk EEG viene simulato e ridotto
-a metriche una sola volta) e salvata su disco in data/sessions.json. Da
-quel momento la sua pagina personale (/s/<id>) mostrerà sempre lo stesso
-quadro, esattamente come la dashboard reale raggiunta via QR code dopo
-l'evento: ricaricare o condividere il link non genera una nuova opera.
+sessione, ne viene creata una nuova e salvata su disco in
+data/sessions.json. Da quel momento la sua pagina personale (/s/<id>)
+mostrerà sempre lo stesso quadro, esattamente come la dashboard reale
+raggiunta via QR code dopo l'evento: ricaricare o condividere il link non
+genera una nuova opera.
 
-Quando arriverà il Muse reale, basterà sostituire SimulatedMuseSource con
-la sorgente vera in _generate_session_data(): il resto dell'endpoint non
-cambia.
+La rilevazione EEG è simulata ma CONTINUA (_record_simulated_eeg): invece
+di un singolo chunk istantaneo, concatena un chunk al secondo — che
+SimulatedMuseSource fa ciclare tra i suoi stati mentali simulati — per
+tutta la durata dell'esperienza (variabile per tipo di stimolo, vedi
+DURATION_RANGES_SECONDS), e calcola le metriche sull'intera registrazione.
+La durata usata diventa anche il valore "minuti" mostrato in dashboard,
+invece di un numero fittizio scollegato dalla simulazione. Quando arriverà
+il Muse reale, basterà sostituire SimulatedMuseSource con la sorgente vera:
+il resto della pipeline non cambia.
 
 Il pannello operatore (/admin) è pensato per lo staff durante l'evento: un
 tasto "nuova sessione" genera l'id, e /api/qrcode/<id> ne renderizza il QR
@@ -86,6 +92,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
+import numpy as np
 import qrcode
 from flask import Flask, Response, abort, jsonify, request, send_file
 
@@ -165,6 +172,17 @@ STIMULUS_META = {
 }
 DEFAULT_STIMULUS_TYPE = "lettura"
 
+# Durata simulata dell'esperienza (secondi), variabile per tipo di stimolo:
+# una fragranza si annusa in pochi secondi, una lettura dura minuti. Guida
+# quante "secondi" di EEG simulato si concatenano in _generate_session_data().
+DURATION_RANGES_SECONDS = {
+    "lettura": (300, 720),
+    "musica": (180, 420),
+    "degustazione": (60, 240),
+    "fragranza": (30, 120),
+    "prodotto": (120, 300),
+}
+
 QUOTES = [
     "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i momenti "
     "preziosi della vita non deve dare per scontato lo scorrere del tempo.",
@@ -236,12 +254,30 @@ def _build_quadro_explanation(asymmetry, activation, signature):
     )
 
 
+def _record_simulated_eeg(stimulus_type):
+    """Simula una rilevazione EEG CONTINUA per tutta la durata dell'esperienza,
+    invece di un singolo chunk istantaneo: concatena un chunk al secondo (che
+    SimulatedMuseSource fa ciclare tra i suoi stati mentali simulati) per la
+    durata scelta in base al tipo di stimolo, poi calcola le metriche
+    sull'intera registrazione — più fedele a una rilevazione "in tempo reale"
+    lungo tutta l'esperienza che a un'istantanea di un secondo.
+
+    Restituisce (metrics, duration_seconds).
+    """
+    low, high = DURATION_RANGES_SECONDS.get(stimulus_type, DURATION_RANGES_SECONDS[DEFAULT_STIMULUS_TYPE])
+    duration_seconds = random.randint(low, high)
+
+    eeg = SimulatedMuseSource(seed=random.randint(0, 1_000_000))
+    chunks = [eeg.get_chunk(n_samples=eeg.SAMPLE_RATE)[0] for _ in range(duration_seconds)]
+    full_recording = np.concatenate(chunks, axis=1)
+
+    return compute_metrics(full_recording, eeg.CHANNELS), duration_seconds
+
+
 def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail=""):
     """Simula una nuova sessione e ne calcola le metriche, per il tipo di
     stimolo indicato (lettura, musica, degustazione, fragranza, prodotto)."""
-    eeg = SimulatedMuseSource(seed=random.randint(0, 1_000_000))
-    chunk, _state = eeg.get_chunk(n_samples=256)
-    metrics = compute_metrics(chunk, eeg.CHANNELS)
+    metrics, duration_seconds = _record_simulated_eeg(stimulus_type)
 
     asymmetry = metrics["asymmetry"]
     activation = metrics["activation"]
@@ -252,7 +288,7 @@ def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail=
     # secondo stream di dati, es. un sensore di battito cardiaco).
     bpm = round(62 + activation * 30)
     bpm_delta = round(asymmetry * 0.05, 2)
-    minutes = round(6 + signature * 8, 1)
+    minutes = round(duration_seconds / 60, 1)
     flow_percent = round((signature * 0.6 + (1 - abs(asymmetry)) * 0.4) * 100)
 
     # "un indicatore del grado di engagement associato all'interazione con
