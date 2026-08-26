@@ -44,12 +44,20 @@ solo il nome, per il saluto: gli altri dati restano visibili solo a chi
 ha creato la sessione dal pannello (risposta di POST /api/session), non
 sono raggiungibili da un endpoint pubblico separato.
 
+Il pannello /admin/sessions elenca tutte le sessioni con dati cliente
+salvati e permette di cancellarle (diritto di cancellazione). Titolare e
+contatti mostrati nell'informativa privacy si configurano con
+BRAINART_DATA_CONTROLLER_NAME e BRAINART_DATA_CONTROLLER_EMAIL — il testo
+in dashboard/admin.html è un MODELLO generico, da far rivedere a un
+legale/DPO prima di un uso reale.
+
 Esecuzione:
     pip install -r requirements.txt
     export BRAINART_ADMIN_USER=... BRAINART_ADMIN_PASSWORD=...
+    export BRAINART_DATA_CONTROLLER_NAME=... BRAINART_DATA_CONTROLLER_EMAIL=...
     python3 server.py
-    apri http://localhost:5000       (dashboard partecipante)
-    apri http://localhost:5000/admin (pannello operatore, richiede login)
+    apri http://localhost:5000        (dashboard partecipante)
+    apri http://localhost:5000/admin  (pannello operatore, richiede login)
 """
 
 import io
@@ -81,6 +89,9 @@ ADMIN_PASSWORD = os.environ.get("BRAINART_ADMIN_PASSWORD", "brainart")
 _USING_DEFAULT_ADMIN_CREDENTIALS = (
     "BRAINART_ADMIN_USER" not in os.environ or "BRAINART_ADMIN_PASSWORD" not in os.environ
 )
+
+DATA_CONTROLLER_NAME = os.environ.get("BRAINART_DATA_CONTROLLER_NAME", "[Nome azienda da configurare]")
+DATA_CONTROLLER_EMAIL = os.environ.get("BRAINART_DATA_CONTROLLER_EMAIL", "privacy@example.com")
 
 QUOTES = [
     "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i momenti "
@@ -235,8 +246,14 @@ def _require_admin_login():
     La dashboard partecipante (/, /s/<id>, /api/session) resta pubblica: la
     protezione riguarda solo la superficie usata dallo staff dell'evento.
     """
-    is_admin_route = request.path == "/admin" or request.path == "/admin.html"
-    is_admin_api = request.path.startswith("/api/qrcode/")
+    is_admin_route = request.path in (
+        "/admin", "/admin.html", "/admin/sessions", "/admin-sessions.html",
+    )
+    is_admin_api = (
+        request.path.startswith("/api/qrcode/")
+        or request.path == "/api/sessions"
+        or (request.path.startswith("/api/session/") and request.method == "DELETE")
+    )
     if not (is_admin_route or is_admin_api):
         return None
 
@@ -247,6 +264,15 @@ def _require_admin_login():
             {"WWW-Authenticate": 'Basic realm="BrainArt Admin"'},
         )
     return None
+
+
+@app.route("/api/config")
+def config():
+    """Dati non sensibili di configurazione, usati per popolare l'informativa privacy."""
+    return jsonify({
+        "dataControllerName": DATA_CONTROLLER_NAME,
+        "dataControllerEmail": DATA_CONTROLLER_EMAIL,
+    })
 
 
 @app.route("/api/session", methods=["POST"])
@@ -289,6 +315,49 @@ def get_session(session_id):
     public_data = {k: v for k, v in data.items() if k != "customer"}
     public_data["firstName"] = customer["firstName"] if customer else None
     return jsonify({**public_data, "id": session_id})
+
+
+@app.route("/api/sessions")
+def list_sessions():
+    """Elenco delle sessioni con dati cliente salvati (pannello /admin/sessions).
+
+    Le sessioni anonime (create dalla pagina partecipante senza passare dal
+    pannello, quindi senza oggetto customer) non compaiono qui: non c'è un
+    "cliente" da gestire.
+    """
+    with _sessions_lock:
+        sessions = _load_sessions()
+
+    items = [
+        {
+            "id": session_id,
+            "customer": data["customer"],
+            "createdAt": data.get("createdAt"),
+            "readingLabel": data.get("readingLabel"),
+            "engagementPercent": data.get("engagementPercent"),
+        }
+        for session_id, data in sessions.items()
+        if data.get("customer")
+    ]
+    items.sort(key=lambda item: item["createdAt"] or "", reverse=True)
+    return jsonify(items)
+
+
+@app.route("/api/session/<session_id>", methods=["DELETE"])
+def delete_session(session_id):
+    """Cancella definitivamente una sessione e i dati del cliente collegati.
+
+    Copre il diritto di cancellazione (art. 17 GDPR): dopo questa chiamata
+    l'id non è più risolvibile né da /s/<id> né da nessun altro endpoint.
+    """
+    with _sessions_lock:
+        sessions = _load_sessions()
+        if session_id not in sessions:
+            abort(404, description=f"Sessione '{session_id}' non trovata")
+        del sessions[session_id]
+        _save_sessions(sessions)
+
+    return jsonify({"deleted": session_id})
 
 
 @app.route("/api/qrcode/<session_id>")
@@ -347,6 +416,12 @@ def print_session(session_id):
 def admin():
     """Pannello operatore: avvia nuove sessioni e distribuisce il relativo QR code."""
     return app.send_static_file("admin.html")
+
+
+@app.route("/admin/sessions")
+def admin_sessions():
+    """Pannello operatore: elenco e cancellazione delle sessioni con dati cliente."""
+    return app.send_static_file("admin-sessions.html")
 
 
 @app.route("/")

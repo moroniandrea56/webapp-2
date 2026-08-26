@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BrainArt · Sessioni salvate</title>
+<style>
+  :root {
+    --bg: #08050f;
+    --card: #120b21;
+    --card-2: #170f28;
+    --border: #2a2040;
+    --text: #f4f2fa;
+    --text-dim: #a89fc0;
+    --text-faint: #6f6689;
+    --accent: #9b7bff;
+    --accent-2: #6f4cff;
+    --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  body {
+    min-height: 100vh;
+    background: radial-gradient(circle at 50% -10%, rgba(111, 76, 255, 0.22), transparent 55%), var(--bg);
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px 64px;
+  }
+  .wrap { width: 100%; max-width: 860px; }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 22px;
+  }
+  .wordmark { font-weight: 800; letter-spacing: 0.06em; font-size: 15px; }
+  .wordmark span { color: var(--accent); }
+  .crumbs-link {
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .crumbs-link:hover { text-decoration: underline; }
+
+  h1 { font-size: 24px; font-weight: 800; margin: 0 0 6px; }
+  .lede {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0 0 22px;
+    max-width: 60ch;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .search-input {
+    flex: 1;
+    font: inherit;
+    font-size: 13px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 10px 16px;
+    color: var(--text);
+  }
+  .search-input:focus { outline: none; border-color: var(--accent); }
+  .count-badge {
+    font-size: 12px;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+
+  .session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .session-card {
+    background: linear-gradient(180deg, var(--card), var(--card-2));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 18px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+  }
+  .session-main { flex: 1; min-width: 220px; }
+  .session-name { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+  .session-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+  .session-meta .id {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text-faint);
+  }
+  .session-date {
+    font-size: 12px;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+
+  .session-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .btn {
+    cursor: pointer;
+    border-radius: 999px;
+    padding: 8px 13px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn:hover { background: rgba(255,255,255,0.08); border-color: var(--accent); }
+  .btn-danger { color: var(--danger); border-color: rgba(255,107,107,0.35); }
+  .btn-danger:hover { background: rgba(255,107,107,0.1); border-color: var(--danger); }
+
+  .empty-state, .status {
+    color: var(--text-faint);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 0;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translate(-50%, 12px);
+    background: #1b1330;
+    border: 1px solid var(--accent-2);
+    color: var(--text);
+    font-size: 13px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    max-width: 340px;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 10;
+  }
+  .toast.visible { opacity: 1; transform: translate(-50%, 0); }
+  .toast.error { border-color: var(--danger); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="wordmark">BRAIN<span>ART</span></div>
+      <a class="crumbs-link" href="/admin">← Nuova sessione</a>
+    </header>
+
+    <h1>Sessioni salvate</h1>
+    <p class="lede">Tutte le sessioni con dati cliente registrati dal pannello operatore.
+    Da qui puoi ritrovare il link/QR di un partecipante, oppure cancellare
+    definitivamente i suoi dati su richiesta.</p>
+
+    <div class="toolbar">
+      <input class="search-input" id="searchInput" type="search" placeholder="Cerca per nome, email o azienda…" />
+      <span class="count-badge" id="countBadge"></span>
+    </div>
+
+    <div id="listWrap">
+      <div class="status" id="statusMsg">Caricamento…</div>
+      <div class="session-list" id="sessionList"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+  let allSessions = [];
+
+  function showToast(message, isError = false) {
+    const toast = document.getElementById("toast");
+    toast.textContent = message;
+    toast.classList.toggle("error", isError);
+    toast.classList.add("visible");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove("visible"), 3000);
+  }
+
+  function fullName(customer) {
+    return `${customer.firstName} ${customer.lastName}`.trim();
+  }
+
+  function formatDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return d.toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function matchesQuery(session, query) {
+    if (!query) return true;
+    const haystack = [
+      fullName(session.customer),
+      session.customer.email,
+      session.customer.company,
+    ].join(" ").toLowerCase();
+    return haystack.includes(query.toLowerCase());
+  }
+
+  function renderList() {
+    const query = document.getElementById("searchInput").value.trim();
+    const filtered = allSessions.filter((s) => matchesQuery(s, query));
+    const list = document.getElementById("sessionList");
+    const statusMsg = document.getElementById("statusMsg");
+    const countBadge = document.getElementById("countBadge");
+
+    countBadge.textContent = `${filtered.length} di ${allSessions.length}`;
+    list.innerHTML = "";
+
+    if (allSessions.length === 0) {
+      statusMsg.textContent = "Nessuna sessione salvata — creane una dal pannello operatore.";
+      statusMsg.style.display = "block";
+      return;
+    }
+    if (filtered.length === 0) {
+      statusMsg.textContent = "Nessun risultato per questa ricerca.";
+      statusMsg.style.display = "block";
+      return;
+    }
+    statusMsg.style.display = "none";
+
+    for (const session of filtered) {
+      const url = `${window.location.origin}/s/${session.id}`;
+      const card = document.createElement("div");
+      card.className = "session-card";
+      card.innerHTML = `
+        <div class="session-main">
+          <div class="session-name">${fullName(session.customer)}</div>
+          <div class="session-meta">
+            <span>${session.customer.email}</span>
+            ${session.customer.phone ? `<span>${session.customer.phone}</span>` : ""}
+            ${session.customer.company ? `<span>${session.customer.company}</span>` : ""}
+            <span class="id">${session.id}</span>
+          </div>
+        </div>
+        <div class="session-date">${formatDate(session.createdAt)}</div>
+        <div class="session-actions">
+          <a class="btn" href="${url}" target="_blank" rel="noopener">Apri pagina</a>
+          <a class="btn" href="/api/qrcode/${session.id}" target="_blank" rel="noopener">QR</a>
+          <a class="btn" href="${url}/print" target="_blank" rel="noopener">Stampa</a>
+          <button class="btn btn-danger" type="button" data-id="${session.id}" data-name="${fullName(session.customer)}">Elimina</button>
+        </div>
+      `;
+      card.querySelector(".btn-danger").addEventListener("click", (e) => {
+        deleteSession(e.currentTarget.dataset.id, e.currentTarget.dataset.name);
+      });
+      list.appendChild(card);
+    }
+  }
+
+  async function loadSessions() {
+    const statusMsg = document.getElementById("statusMsg");
+    try {
+      const res = await fetch("/api/sessions");
+      if (!res.ok) throw new Error(`risposta ${res.status}`);
+      allSessions = await res.json();
+      renderList();
+    } catch (err) {
+      statusMsg.textContent = "Impossibile caricare le sessioni: server non raggiungibile.";
+      statusMsg.style.display = "block";
+      console.error(err);
+    }
+  }
+
+  async function deleteSession(id, name) {
+    if (!window.confirm(`Cancellare definitivamente la sessione di ${name}? L'operazione non è reversibile.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/session/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`risposta ${res.status}`);
+      allSessions = allSessions.filter((s) => s.id !== id);
+      renderList();
+      showToast(`Sessione di ${name} cancellata.`);
+    } catch (err) {
+      showToast("Impossibile cancellare la sessione.", true);
+      console.error(err);
+    }
+  }
+
+  document.getElementById("searchInput").addEventListener("input", renderList);
+  loadSessions();
+</script>
+</body>
+</html>
