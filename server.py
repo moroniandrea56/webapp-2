@@ -15,19 +15,27 @@ Quando arriverà il Muse reale, basterà sostituire SimulatedMuseSource con
 la sorgente vera in _generate_session_data(): il resto dell'endpoint non
 cambia.
 
+Il pannello operatore (/admin) è pensato per lo staff durante l'evento: un
+tasto "nuova sessione" genera l'id, e /api/qrcode/<id> ne renderizza il QR
+già puntato alla pagina personale, pronto da mostrare o stampare per il
+partecipante.
+
 Esecuzione:
     pip install -r requirements.txt
     python3 server.py
-    apri http://localhost:5000
+    apri http://localhost:5000       (dashboard partecipante)
+    apri http://localhost:5000/admin (pannello operatore)
 """
 
+import io
 import json
 import os
 import random
 import threading
 import uuid
 
-from flask import Flask, abort, jsonify, request
+import qrcode
+from flask import Flask, abort, jsonify, request, send_file
 
 from eeg_source import SimulatedMuseSource
 from signal_processing import compute_metrics
@@ -149,6 +157,24 @@ def get_session(session_id):
     return jsonify({**sessions[session_id], "id": session_id})
 
 
+@app.route("/api/qrcode/<session_id>")
+def session_qrcode(session_id):
+    """Genera al volo il QR code che punta alla pagina personale della sessione."""
+    with _sessions_lock:
+        sessions = _load_sessions()
+
+    if session_id not in sessions:
+        abort(404, description=f"Sessione '{session_id}' non trovata")
+
+    url = f"{request.url_root}s/{session_id}"
+    img = qrcode.make(url, border=2)
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return send_file(buffer, mimetype="image/png")
+
+
 @app.errorhandler(404)
 def handle_404(error):
     if request.path.startswith("/api/"):
@@ -160,6 +186,12 @@ def handle_404(error):
 def dashboard_for_session(session_id):
     """Serve la pagina statica: l'id viene letto lato client dall'URL."""
     return app.send_static_file("index.html")
+
+
+@app.route("/admin")
+def admin():
+    """Pannello operatore: avvia nuove sessioni e distribuisce il relativo QR code."""
+    return app.send_static_file("admin.html")
 
 
 @app.route("/")
