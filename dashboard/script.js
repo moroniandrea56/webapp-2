@@ -11,6 +11,7 @@ const FALLBACK_SESSION = {
   asymmetry: 0.42,
   activation: 0.58,
   signature: 0.63,
+  engagementPercent: 58,
   readingLabel: "TENSIONE",
   quote: "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i " +
          "momenti preziosi della vita non deve dare per scontato lo scorrere del tempo.",
@@ -155,6 +156,10 @@ async function loadSession() {
 function populateText(session) {
   document.getElementById("quoteText").textContent = `«${session.quote}»`;
   document.getElementById("readingLabel").textContent = session.readingLabel;
+
+  const engagement = Math.round(session.engagementPercent);
+  document.getElementById("engagementValue").textContent = `${engagement}%`;
+  document.getElementById("engagementFill").style.width = `${Math.min(100, Math.max(0, engagement))}%`;
 
   const pre = session.preReading;
   document.getElementById("preLabel").textContent = pre.label;

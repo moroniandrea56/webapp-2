@@ -136,10 +136,18 @@ def _generate_session_data():
     minutes = round(6 + signature * 8, 1)
     flow_percent = round((signature * 0.6 + (1 - abs(asymmetry)) * 0.4) * 100)
 
+    # "un indicatore del grado di engagement associato all'interazione con
+    # l'attività proposta" (sezione Scienza e Tecnologia): è la stessa
+    # `activation` che guida il movimento del quadro, qui resa esplicita
+    # come metrica autonoma mostrata al partecipante, non solo un input
+    # nascosto della visualizzazione.
+    engagement_percent = round(activation * 100)
+
     return {
         "asymmetry": asymmetry,
         "activation": activation,
         "signature": signature,
+        "engagementPercent": engagement_percent,
         "readingLabel": _reading_label(asymmetry, activation),
         "quote": random.choice(QUOTES),
         "preReading": {

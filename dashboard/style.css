@@ -220,6 +220,48 @@ main {
   color: var(--accent);
 }
 
+.engagement-row {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.engagement-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.engagement-label {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.engagement-value {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text);
+}
+.engagement-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+.engagement-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  transition: width 0.6s ease;
+}
+.engagement-caption {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
 .state-panel {
   position: relative;
   border-radius: 16px;
