@@ -41,6 +41,31 @@ html, body {
   padding: 20px 20px 8px;
 }
 
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.back-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(255,255,255,0.05);
+}
+
 .wordmark {
   font-weight: 800;
   letter-spacing: 0.08em;
