@@ -186,7 +186,7 @@
         <div class="print-card">
           <img class="print-art" src="/api/artwork/${id}.png" alt="Il tuo quadro BrainArt" />
           <div class="print-footer">
-            <div class="print-reading">La tua lettura &middot; <strong>${session.readingLabel}</strong></div>
+            <div class="print-reading">${(session.stimulus || {}).tagLabel || "La tua lettura"} &middot; <strong>${session.readingLabel}</strong></div>
             <div class="print-brand">Il tuo brand qui</div>
             <div class="print-link">${personalUrl}</div>
           </div>

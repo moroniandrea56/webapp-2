@@ -46,20 +46,21 @@
         <div class="disclosure-panel" id="howToReadPanel">
           <p><strong>Colore</strong> — nasce dalla tua risposta emotiva (frontal asymmetry): tonalità calde indicano
           uno stato di avvicinamento/apertura, tonalità fredde uno stato di ritiro.</p>
-          <p><strong>Movimento</strong> — riflette il tuo livello di attivazione cerebrale durante la lettura: più
+          <p><strong>Movimento</strong> — riflette il tuo livello di attivazione cerebrale durante l'esperienza: più
           il tratto è mosso e denso, più la mente era attiva.</p>
           <p><strong>Forma</strong> — è la tua firma individuale, unica per ogni persona: nessun quadro sarà mai
           identico a un altro.</p>
+          <p class="quadro-explanation" id="quadroExplanation"></p>
         </div>
 
         <blockquote class="quote-card">
           <p id="quoteText">“Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i momenti
           preziosi della vita non deve dare per scontato lo scorrere del tempo.”</p>
-          <cite>Un estratto del brano che hai letto</cite>
+          <cite id="quoteCaption">Un estratto del brano che hai letto</cite>
         </blockquote>
 
         <div class="reading-tag">
-          <span class="reading-tag-label">La tua lettura</span>
+          <span class="reading-tag-label" id="stimulusTagLabel">La tua lettura</span>
           <span class="reading-tag-value" id="readingLabel">TENSIONE</span>
         </div>
 
@@ -73,11 +74,11 @@
         </div>
       </section>
 
-      <!-- ===================== SEZIONE 2: PRIMA DEL TESTO ===================== -->
+      <!-- ===================== SEZIONE 2: PRIMA DELLO STIMOLO ===================== -->
       <section class="card">
-        <h2 class="section-title small">TU, ANCORA PRIMA<br/>DEL TESTO</h2>
-        <p class="section-lede">Il tuo corpo racconta una storia che inizia prima ancora che tu legga la
-        prima parola.</p>
+        <h2 class="section-title small" id="preTitle">TU, ANCORA PRIMA<br/>DEL TESTO</h2>
+        <p class="section-lede">Il tuo corpo racconta una storia che inizia prima ancora che l'esperienza
+        cominci.</p>
 
         <div class="state-panel warm">
           <canvas id="preCanvas" width="360" height="360"></canvas>
@@ -90,7 +91,7 @@
         <div class="stat-grid">
           <div class="stat">
             <div class="stat-value" id="statMinutes">10.4</div>
-            <div class="stat-label">min<br/>lettura</div>
+            <div class="stat-label" id="statMinutesLabel">min<br/>lettura</div>
           </div>
           <div class="stat">
             <div class="stat-value" id="statBpm">75</div>
@@ -105,9 +106,9 @@
         <button class="btn btn-block" id="howToReadDataBtn">Come leggere il tuo dato</button>
       </section>
 
-      <!-- ===================== SEZIONE 3: EFFETTO DELLA LETTURA ===================== -->
+      <!-- ===================== SEZIONE 3: EFFETTO DELLO STIMOLO ===================== -->
       <section class="card">
-        <h2 class="section-title small">L'EFFETTO DI CIÒ<br/>CHE HAI LETTO</h2>
+        <h2 class="section-title small" id="postTitle">L'EFFETTO DI CIÒ<br/>CHE HAI LETTO</h2>
 
         <div class="state-panel cool">
           <canvas id="postCanvas" width="360" height="360"></canvas>

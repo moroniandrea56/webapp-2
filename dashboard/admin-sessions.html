@@ -136,6 +136,26 @@
   .btn-danger { color: var(--danger); border-color: rgba(255,107,107,0.35); }
   .btn-danger:hover { background: rgba(255,107,107,0.1); border-color: var(--danger); }
 
+  .stimulus-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: rgba(155,123,255,0.12);
+    border: 1px solid rgba(155,123,255,0.3);
+    border-radius: 999px;
+    padding: 2px 8px;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+  .email-sent-note {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
   .empty-state, .status {
     color: var(--text-faint);
     font-size: 13px;
@@ -246,28 +266,37 @@
 
     for (const session of filtered) {
       const url = `${window.location.origin}/s/${session.id}`;
+      const stimulusLabel = session.stimulus ? session.stimulus.label : "Lettura";
       const card = document.createElement("div");
       card.className = "session-card";
       card.innerHTML = `
         <div class="session-main">
-          <div class="session-name">${fullName(session.customer)}</div>
+          <div class="session-name">${fullName(session.customer)} <span class="stimulus-badge">${stimulusLabel}</span></div>
           <div class="session-meta">
             <span>${session.customer.email}</span>
             ${session.customer.phone ? `<span>${session.customer.phone}</span>` : ""}
             ${session.customer.company ? `<span>${session.customer.company}</span>` : ""}
             <span class="id">${session.id}</span>
           </div>
+          ${session.emailSentAt ? `<div class="email-sent-note">Quadro inviato il ${formatDate(session.emailSentAt)}</div>` : ""}
         </div>
         <div class="session-date">${formatDate(session.createdAt)}</div>
         <div class="session-actions">
           <a class="btn" href="${url}" target="_blank" rel="noopener">Apri pagina</a>
           <a class="btn" href="/api/qrcode/${session.id}" target="_blank" rel="noopener">QR</a>
           <a class="btn" href="${url}/print" target="_blank" rel="noopener">Stampa</a>
+          <button class="btn" type="button" data-action="email" data-id="${session.id}" data-name="${fullName(session.customer)}" data-email="${session.customer.email}">
+            ${session.emailSentAt ? "Invia di nuovo" : "Invia email"}
+          </button>
           <button class="btn btn-danger" type="button" data-id="${session.id}" data-name="${fullName(session.customer)}">Elimina</button>
         </div>
       `;
       card.querySelector(".btn-danger").addEventListener("click", (e) => {
         deleteSession(e.currentTarget.dataset.id, e.currentTarget.dataset.name);
+      });
+      card.querySelector('[data-action="email"]').addEventListener("click", (e) => {
+        const { id, name, email } = e.currentTarget.dataset;
+        sendSessionEmail(id, name, email);
       });
       list.appendChild(card);
     }
@@ -283,6 +312,23 @@
     } catch (err) {
       statusMsg.textContent = "Impossibile caricare le sessioni: server non raggiungibile.";
       statusMsg.style.display = "block";
+      console.error(err);
+    }
+  }
+
+  async function sendSessionEmail(id, name, email) {
+    if (!window.confirm(`Inviare il quadro a ${name} (${email})?`)) return;
+    try {
+      const res = await fetch(`/api/session/${id}/send-email`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `risposta ${res.status}`);
+
+      const session = allSessions.find((s) => s.id === id);
+      if (session) session.emailSentAt = data.sentAt;
+      renderList();
+      showToast(`Quadro inviato a ${name}.`);
+    } catch (err) {
+      showToast(err.message || "Impossibile inviare l'email.", true);
       console.error(err);
     }
   }

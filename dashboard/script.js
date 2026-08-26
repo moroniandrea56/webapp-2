@@ -15,25 +15,45 @@ const FALLBACK_SESSION = {
   readingLabel: "TENSIONE",
   quote: "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i " +
          "momenti preziosi della vita non deve dare per scontato lo scorrere del tempo.",
+  quadroExplanation: "Il tuo quadro ha tonalità calde: la tua risposta emotiva è stata di " +
+                      "avvicinamento (+0.42). Il tratto è moderatamente mosso, coerente con " +
+                      "un'attivazione cerebrale del 58%. La forma ha 7 lobi: è la tua firma " +
+                      "individuale in questa sessione, diversa da quella di chiunque altro.",
+  stimulus: {
+    type: "lettura",
+    label: "Lettura",
+    preTitle: "TU, ANCORA PRIMA\nDEL TESTO",
+    postTitle: "L'EFFETTO DI CIÒ\nCHE HAI LETTO",
+    tagLabel: "La tua lettura",
+    quoteCaption: "Un estratto del brano che hai letto",
+  },
   preReading: { label: "INTENSO", minutes: 10.4, bpm: 75, bpmDelta: 0.01 },
   postReading: { label: "EQUILIBRIO", flowPercent: 31 },
+};
+
+const STIMULUS_MINUTES_LABEL = {
+  lettura: "min<br/>lettura",
+  musica: "min<br/>ascolto",
+  degustazione: "min<br/>degustazione",
+  fragranza: "min<br/>esperienza",
+  prodotto: "min<br/>prova",
 };
 
 const PRE_DESCRIPTIONS = {
   INTENSO: "Il tuo cuore batte forte e resta pronto ad accogliere ciò che arriva. " +
            "I processi che portano la mente a immergersi in un pensiero richiedono spesso " +
            "un coinvolgimento intenso, e le tue reazioni fisiologiche lo confermano.",
-  VIGILE: "Il tuo corpo è attento e reattivo, pronto a cogliere ogni sfumatura del testo " +
-          "che stai per leggere.",
-  CALMO: "Arrivi alla lettura in uno stato di quiete: il battito è disteso e regolare.",
+  VIGILE: "Il tuo corpo è attento e reattivo, pronto a cogliere ogni sfumatura " +
+          "dell'esperienza che stai per vivere.",
+  CALMO: "Arrivi all'esperienza in uno stato di quiete: il battito è disteso e regolare.",
 };
 
 const POST_DESCRIPTIONS = {
-  QUIETE: "La lettura ti ha portato verso una quiete profonda: il battito rallenta e " +
+  QUIETE: "L'esperienza ti ha portato verso una quiete profonda: il battito rallenta e " +
           "la mente si distende.",
-  FLOW: "Sei entrato in uno stato di flow: la mente segue il testo senza sforzo, " +
+  FLOW: "Sei entrato in uno stato di flow: la mente segue l'esperienza senza sforzo, " +
         "immersa e fluida.",
-  EQUILIBRIO: "Con la lettura hai raggiunto uno stato di equilibrio: la mente si " +
+  EQUILIBRIO: "Con questa esperienza hai raggiunto uno stato di equilibrio: la mente si " +
               "stabilizza e resta comunque ricettiva.",
 };
 
@@ -160,6 +180,15 @@ function populateText(session) {
 
   document.getElementById("quoteText").textContent = `«${session.quote}»`;
   document.getElementById("readingLabel").textContent = session.readingLabel;
+  document.getElementById("quadroExplanation").textContent = session.quadroExplanation;
+
+  const stimulus = session.stimulus || FALLBACK_SESSION.stimulus;
+  document.getElementById("quoteCaption").textContent = stimulus.quoteCaption;
+  document.getElementById("stimulusTagLabel").textContent = stimulus.tagLabel;
+  document.getElementById("preTitle").innerHTML = stimulus.preTitle.replace("\n", "<br/>");
+  document.getElementById("postTitle").innerHTML = stimulus.postTitle.replace("\n", "<br/>");
+  document.getElementById("statMinutesLabel").innerHTML =
+    STIMULUS_MINUTES_LABEL[stimulus.type] || STIMULUS_MINUTES_LABEL.lettura;
 
   const engagement = Math.round(session.engagementPercent);
   document.getElementById("engagementValue").textContent = `${engagement}%`;

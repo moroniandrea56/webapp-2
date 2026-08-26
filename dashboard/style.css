@@ -176,6 +176,15 @@ main {
 .disclosure-panel > div { overflow: hidden; }
 .disclosure-panel[data-open="true"] { grid-template-rows: 1fr; }
 .disclosure-panel p { margin: 10px 2px; }
+.quadro-explanation {
+  margin-top: 14px !important;
+  padding: 12px 14px;
+  background: rgba(155,123,255,0.07);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text) !important;
+  font-size: 12px;
+}
 
 .quote-card {
   margin: 16px 0 0;

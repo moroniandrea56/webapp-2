@@ -45,16 +45,33 @@ ha creato la sessione dal pannello (risposta di POST /api/session), non
 sono raggiungibili da un endpoint pubblico separato.
 
 Il pannello /admin/sessions elenca tutte le sessioni con dati cliente
-salvati e permette di cancellarle (diritto di cancellazione). Titolare e
-contatti mostrati nell'informativa privacy si configurano con
-BRAINART_DATA_CONTROLLER_NAME e BRAINART_DATA_CONTROLLER_EMAIL — il testo
-in dashboard/admin.html è un MODELLO generico, da far rivedere a un
-legale/DPO prima di un uso reale.
+salvati e permette di cancellarle (diritto di cancellazione), oppure di
+inviare via email il quadro al partecipante (richiede la configurazione
+SMTP in email_sender.py — se assente, l'endpoint risponde con un errore
+chiaro invece di fallire in silenzio). Titolare e contatti mostrati
+nell'informativa privacy si configurano con BRAINART_DATA_CONTROLLER_NAME
+e BRAINART_DATA_CONTROLLER_EMAIL — il testo in dashboard/admin.html è un
+MODELLO generico, da far rivedere a un legale/DPO prima di un uso reale.
+
+Lo stimolo che genera la sessione non è per forza una lettura: il "come
+funziona" ufficiale prevede musica, degustazione, fragranza o prodotto
+oltre alla lettura. Il pannello operatore lo chiede all'avvio (STIMULUS_META
+sotto), e la dashboard partecipante adatta titoli ed etichette di
+conseguenza.
+
+Ogni sessione creata viene anche trasmessa via OSC (osc_sender.py) verso
+BRAINART_OSC_IP:BRAINART_OSC_PORT (default 127.0.0.1:9000): se un
+TouchDesigner è in ascolto su quella porta, riceve le stesse metriche in
+tempo reale per una proiezione più spettacolare allo stand. Se non c'è
+nessuno in ascolto, la chiamata non fa nulla (comportamento già previsto
+da OSCSender).
 
 Esecuzione:
     pip install -r requirements.txt
     export BRAINART_ADMIN_USER=... BRAINART_ADMIN_PASSWORD=...
     export BRAINART_DATA_CONTROLLER_NAME=... BRAINART_DATA_CONTROLLER_EMAIL=...
+    export BRAINART_OSC_IP=... BRAINART_OSC_PORT=...   # opzionale
+    export BRAINART_SMTP_HOST=... BRAINART_SMTP_USER=... BRAINART_SMTP_PASSWORD=...  # opzionale
     python3 server.py
     apri http://localhost:5000        (dashboard partecipante)
     apri http://localhost:5000/admin  (pannello operatore, richiede login)
@@ -73,7 +90,9 @@ import qrcode
 from flask import Flask, Response, abort, jsonify, request, send_file
 
 import artwork_renderer
+import email_sender
 from eeg_source import SimulatedMuseSource
+from osc_sender import OSCSender
 from signal_processing import compute_metrics
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -92,6 +111,59 @@ _USING_DEFAULT_ADMIN_CREDENTIALS = (
 
 DATA_CONTROLLER_NAME = os.environ.get("BRAINART_DATA_CONTROLLER_NAME", "[Nome azienda da configurare]")
 DATA_CONTROLLER_EMAIL = os.environ.get("BRAINART_DATA_CONTROLLER_EMAIL", "privacy@example.com")
+
+OSC_IP = os.environ.get("BRAINART_OSC_IP", "127.0.0.1")
+OSC_PORT = int(os.environ.get("BRAINART_OSC_PORT", "9000"))
+_osc = OSCSender(ip=OSC_IP, port=OSC_PORT)
+
+# Il "come funziona" ufficiale prevede più tipi di stimolazione sensoriale,
+# non solo la lettura: ogni voce guida i titoli e le etichette che la
+# dashboard partecipante mostra per quel tipo di esperienza.
+STIMULUS_META = {
+    # preTitle/postTitle contengono un "\n" nel punto in cui la dashboard va
+    # a capo (due righe, come nel design originale a due righe fisse).
+    "lettura": {
+        "label": "Lettura",
+        "preTitle": "TU, ANCORA PRIMA\nDEL TESTO",
+        "postTitle": "L'EFFETTO DI CIÒ\nCHE HAI LETTO",
+        "tagLabel": "La tua lettura",
+        "quoteCaption": "Un estratto del brano che hai letto",
+        "defaultDetail": None,  # ripiega su QUOTES
+    },
+    "musica": {
+        "label": "Musica",
+        "preTitle": "TU, ANCORA PRIMA\nDELL'ASCOLTO",
+        "postTitle": "L'EFFETTO DI CIÒ\nCHE HAI ASCOLTATO",
+        "tagLabel": "Il tuo ascolto",
+        "quoteCaption": "Il brano che hai ascoltato",
+        "defaultDetail": "Un brano musicale scelto per l'esperienza.",
+    },
+    "degustazione": {
+        "label": "Degustazione",
+        "preTitle": "TU, ANCORA PRIMA\nDELL'ASSAGGIO",
+        "postTitle": "L'EFFETTO DI CIÒ\nCHE HAI DEGUSTATO",
+        "tagLabel": "La tua degustazione",
+        "quoteCaption": "Cosa hai degustato",
+        "defaultDetail": "Un prodotto degustato durante l'esperienza.",
+    },
+    "fragranza": {
+        "label": "Fragranza",
+        "preTitle": "TU, ANCORA PRIMA\nDELLA FRAGRANZA",
+        "postTitle": "L'EFFETTO DI\nQUESTA FRAGRANZA",
+        "tagLabel": "La tua fragranza",
+        "quoteCaption": "La fragranza che hai annusato",
+        "defaultDetail": "Una fragranza proposta durante l'esperienza.",
+    },
+    "prodotto": {
+        "label": "Prodotto",
+        "preTitle": "TU, ANCORA PRIMA\nDELLA PROVA",
+        "postTitle": "L'EFFETTO DI\nQUESTA PROVA",
+        "tagLabel": "La tua prova prodotto",
+        "quoteCaption": "Il prodotto che hai provato",
+        "defaultDetail": "Un prodotto provato durante l'esperienza.",
+    },
+}
+DEFAULT_STIMULUS_TYPE = "lettura"
 
 QUOTES = [
     "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i momenti "
@@ -141,8 +213,32 @@ def _post_reading_label(activation, signature):
     return "EQUILIBRIO"
 
 
-def _generate_session_data():
-    """Simula una nuova sessione di lettura e ne calcola le metriche."""
+def _build_quadro_explanation(asymmetry, activation, signature):
+    """Spiegazione del quadro basata sui valori reali della sessione (passaggio 4:
+    normalmente affidato al team a voce, qui reso anche in forma scritta e
+    personalizzata, invece del solo testo generico valido per chiunque)."""
+    warmth = "calde (approach)" if asymmetry >= 0 else "fredde (withdrawal)"
+    direction = "avvicinamento" if asymmetry >= 0 else "ritiro"
+    if activation > 0.66:
+        movement = "molto mosso e denso"
+    elif activation > 0.33:
+        movement = "moderatamente mosso"
+    else:
+        movement = "quasi immobile e quieto"
+    lobes = 3 + round(signature * 6)
+
+    return (
+        f"Il tuo quadro ha tonalità {warmth}: la tua risposta emotiva è stata di "
+        f"{direction} ({asymmetry:+.2f}). Il tratto è {movement}, coerente con "
+        f"un'attivazione cerebrale del {round(activation * 100)}%. La forma ha {lobes} "
+        f"lobi: è la tua firma individuale in questa sessione, diversa da quella di "
+        f"chiunque altro."
+    )
+
+
+def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail=""):
+    """Simula una nuova sessione e ne calcola le metriche, per il tipo di
+    stimolo indicato (lettura, musica, degustazione, fragranza, prodotto)."""
     eeg = SimulatedMuseSource(seed=random.randint(0, 1_000_000))
     chunk, _state = eeg.get_chunk(n_samples=256)
     metrics = compute_metrics(chunk, eeg.CHANNELS)
@@ -166,13 +262,31 @@ def _generate_session_data():
     # nascosto della visualizzazione.
     engagement_percent = round(activation * 100)
 
+    meta = STIMULUS_META.get(stimulus_type, STIMULUS_META[DEFAULT_STIMULUS_TYPE])
+    quote = stimulus_detail.strip() if stimulus_detail else None
+    if not quote:
+        quote = random.choice(QUOTES) if stimulus_type == "lettura" else meta["defaultDetail"]
+
+    # Trasmette le metriche via OSC (es. a TouchDesigner): non fa nulla se
+    # nessuno è in ascolto sulla porta configurata, va bene così.
+    _osc.send_metrics({"asymmetry": asymmetry, "activation": activation, "signature": signature})
+
     return {
         "asymmetry": asymmetry,
         "activation": activation,
         "signature": signature,
         "engagementPercent": engagement_percent,
         "readingLabel": _reading_label(asymmetry, activation),
-        "quote": random.choice(QUOTES),
+        "quote": quote,
+        "quadroExplanation": _build_quadro_explanation(asymmetry, activation, signature),
+        "stimulus": {
+            "type": stimulus_type,
+            "label": meta["label"],
+            "preTitle": meta["preTitle"],
+            "postTitle": meta["postTitle"],
+            "tagLabel": meta["tagLabel"],
+            "quoteCaption": meta["quoteCaption"],
+        },
         "preReading": {
             "label": _pre_reading_label(activation),
             "minutes": minutes,
@@ -184,6 +298,17 @@ def _generate_session_data():
             "flowPercent": flow_percent,
         },
     }
+
+
+def _parse_stimulus(body):
+    """Legge tipo e dettaglio dello stimolo dal payload; ripiega su 'lettura'
+    se assente o non riconosciuto, per restare compatibile con chi non lo invia."""
+    stimulus = (body or {}).get("stimulus") or {}
+    stimulus_type = stimulus.get("type") or DEFAULT_STIMULUS_TYPE
+    if stimulus_type not in STIMULUS_META:
+        stimulus_type = DEFAULT_STIMULUS_TYPE
+    stimulus_detail = str(stimulus.get("detail", "")).strip()
+    return stimulus_type, stimulus_detail
 
 
 def _parse_customer(body):
@@ -253,6 +378,7 @@ def _require_admin_login():
         request.path.startswith("/api/qrcode/")
         or request.path == "/api/sessions"
         or (request.path.startswith("/api/session/") and request.method == "DELETE")
+        or request.path.endswith("/send-email")
     )
     if not (is_admin_route or is_admin_api):
         return None
@@ -285,11 +411,13 @@ def create_session():
     come prima: nessun dato personale, nessuna validazione (lo usa anche la
     pagina partecipante per crearsi da sola una sessione al primo accesso).
     """
-    customer, error = _parse_customer(request.get_json(silent=True))
+    body = request.get_json(silent=True)
+    customer, error = _parse_customer(body)
     if error:
         return jsonify({"error": error}), 400
 
-    payload = _generate_session_data()
+    stimulus_type, stimulus_detail = _parse_stimulus(body)
+    payload = _generate_session_data(stimulus_type, stimulus_detail)
     payload["customer"] = customer
     payload["createdAt"] = datetime.now(timezone.utc).isoformat()
     session_id = uuid.uuid4().hex[:10]
@@ -335,6 +463,8 @@ def list_sessions():
             "createdAt": data.get("createdAt"),
             "readingLabel": data.get("readingLabel"),
             "engagementPercent": data.get("engagementPercent"),
+            "stimulus": data.get("stimulus"),
+            "emailSentAt": data.get("emailSentAt"),
         }
         for session_id, data in sessions.items()
         if data.get("customer")
@@ -358,6 +488,44 @@ def delete_session(session_id):
         _save_sessions(sessions)
 
     return jsonify({"deleted": session_id})
+
+
+@app.route("/api/session/<session_id>/send-email", methods=["POST"])
+def send_session_email(session_id):
+    """Invia via email il quadro al partecipante (richiede SMTP configurato in email_sender.py)."""
+    data = _get_session_or_404(session_id)
+    customer = data.get("customer")
+    if not customer:
+        return jsonify({"error": "Questa sessione non ha un cliente collegato."}), 400
+
+    png_bytes = artwork_renderer.render_artwork_png_bytes(
+        data["asymmetry"], data["activation"], data["signature"], size=1600
+    )
+    personal_url = f"{request.url_root}s/{session_id}"
+    stimulus_label = (data.get("stimulus") or {}).get("label", "la tua esperienza BrainArt")
+
+    try:
+        email_sender.send_artwork_email(
+            to_email=customer["email"],
+            to_first_name=customer["firstName"],
+            personal_url=personal_url,
+            stimulus_label=stimulus_label,
+            png_bytes=png_bytes,
+            filename=f"brainart-{session_id}.png",
+        )
+    except email_sender.EmailNotConfiguredError as err:
+        return jsonify({"error": str(err)}), 501
+    except Exception as err:  # smtplib può sollevare più eccezioni specifiche diverse
+        return jsonify({"error": f"Invio fallito: {err}"}), 502
+
+    sent_at = datetime.now(timezone.utc).isoformat()
+    with _sessions_lock:
+        sessions = _load_sessions()
+        if session_id in sessions:
+            sessions[session_id]["emailSentAt"] = sent_at
+            _save_sessions(sessions)
+
+    return jsonify({"sent": True, "sentAt": sent_at})
 
 
 @app.route("/api/qrcode/<session_id>")
@@ -436,4 +604,10 @@ if __name__ == "__main__":
             "Impostale con BRAINART_ADMIN_USER e BRAINART_ADMIN_PASSWORD prima di "
             "usare questo prototipo a un evento reale."
         )
+    print(f"OSC: le metriche di ogni sessione vengono inviate a {OSC_IP}:{OSC_PORT}.")
+    print(
+        "Email: invio del quadro "
+        + ("configurato." if email_sender.smtp_configured() else
+           "non configurato (imposta BRAINART_SMTP_HOST/USER/PASSWORD per attivarlo).")
+    )
     app.run(debug=True, port=5000)

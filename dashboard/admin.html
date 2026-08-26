@@ -109,7 +109,8 @@
   }
   .field input[type="text"],
   .field input[type="email"],
-  .field input[type="tel"] {
+  .field input[type="tel"],
+  .field select {
     font: inherit;
     background: rgba(255,255,255,0.03);
     border: 1px solid var(--border);
@@ -117,7 +118,9 @@
     padding: 10px 12px;
     color: var(--text);
   }
-  .field input:focus {
+  .field select { appearance: auto; }
+  .field input:focus,
+  .field select:focus {
     outline: none;
     border-color: var(--accent);
     background: rgba(255,255,255,0.05);
@@ -344,6 +347,29 @@
     ogni visita successiva.</p>
 
     <div class="card">
+      <p class="form-title">Tipo di esperienza</p>
+      <p class="form-lede">Lo stimolo proposto al partecipante prima della rilevazione:
+      titoli ed etichette della sua dashboard si adattano di conseguenza.</p>
+
+      <div class="field-grid">
+        <div class="field">
+          <label for="stimulusType">Tipo di stimolo</label>
+          <select id="stimulusType">
+            <option value="lettura">Lettura</option>
+            <option value="musica">Musica</option>
+            <option value="degustazione">Degustazione</option>
+            <option value="fragranza">Fragranza</option>
+            <option value="prodotto">Prodotto</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="stimulusDetail">Dettaglio <span class="optional">(facoltativo)</span></label>
+          <input type="text" id="stimulusDetail" placeholder="Es. estratto del testo letto" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <p class="form-title">Dati del partecipante</p>
       <p class="form-lede">Servono per collegare il quadro alla persona e, se acconsente,
       per poterglielo inviare. Nome, cognome ed email sono obbligatori.</p>
@@ -531,10 +557,36 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
     };
   }
 
+  const STIMULUS_DETAIL_PLACEHOLDERS = {
+    lettura: "Es. estratto del testo letto",
+    musica: "Es. titolo del brano ascoltato",
+    degustazione: "Es. nome del prodotto degustato",
+    fragranza: "Es. nome della fragranza",
+    prodotto: "Es. nome del prodotto provato",
+  };
+
+  function readStimulusForm() {
+    return {
+      type: document.getElementById("stimulusType").value,
+      detail: document.getElementById("stimulusDetail").value.trim(),
+    };
+  }
+
+  function initStimulusForm() {
+    const select = document.getElementById("stimulusType");
+    const detail = document.getElementById("stimulusDetail");
+    select.addEventListener("change", () => {
+      detail.placeholder = STIMULUS_DETAIL_PLACEHOLDERS[select.value] || "";
+    });
+  }
+
   function resetCustomerForm() {
     const form = document.getElementById("customerForm");
     form.reset();
     form.classList.remove("attempted");
+    document.getElementById("stimulusType").value = "lettura";
+    document.getElementById("stimulusDetail").value = "";
+    document.getElementById("stimulusDetail").placeholder = STIMULUS_DETAIL_PLACEHOLDERS.lettura;
     document.getElementById("custFirstName").focus();
   }
 
@@ -545,6 +597,7 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
     if (!form.reportValidity()) return; // nome/cognome/email/consenso mancanti
 
     const customer = readCustomerForm();
+    const stimulus = readStimulusForm();
     const btn = document.getElementById("newSessionBtn");
     btn.disabled = true;
     btn.textContent = "Generazione…";
@@ -552,7 +605,7 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer }),
+        body: JSON.stringify({ customer, stimulus }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `risposta ${res.status}`);
@@ -579,6 +632,7 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
 
   document.getElementById("customerForm").addEventListener("submit", createSession);
   initPrivacyNotice();
+  initStimulusForm();
 
   document.getElementById("copyLinkBtn").addEventListener("click", async () => {
     const url = document.getElementById("resultLink").href;
