@@ -3,21 +3,25 @@ eeg_source.py
 =============
 Sorgente dati EEG. In questo prototipo i dati sono SIMULATI, ma la funzione
 get_chunk() ha la stessa "forma" (stessa interfaccia) che avrà quando
-collegherai un Muse reale tramite BrainFlow.
+collegherai un dispositivo reale via Bluetooth.
 
-Quando arriva il dispositivo, dovrai solo scrivere una nuova classe
-(es. MuseRealSource) con lo stesso metodo get_chunk() che legge dati veri
-dal Bluetooth invece che generarli — il resto della pipeline (signal
-processing, mappatura visiva, invio OSC) NON cambia.
+SimulatedMuseSource implementa EEGSource (eeg_device.py), il contratto
+comune a qualunque sorgente EEG: quando il dispositivo reale sarà scelto,
+la nuova classe che lo legge (BluetoothEEGSource, già abbozzata in
+eeg_device.py) rispetterà lo stesso contratto — il resto della pipeline
+(signal processing, mappatura visiva, invio OSC) NON cambia.
 
 Canali simulati: TP9, AF7, AF8, TP10 (gli stessi 4 elettrodi del Muse,
 due frontali e due temporali — servono per calcolare la "frontal asymmetry").
+Se il dispositivo scelto avrà canali diversi, andranno aggiornati qui.
 """
 
 import numpy as np
 
+from eeg_device import EEGSource
 
-class SimulatedMuseSource:
+
+class SimulatedMuseSource(EEGSource):
     """
     Genera un flusso continuo di dati EEG plausibili, con "stati mentali"
     che cambiano nel tempo per rendere il test più realistico
