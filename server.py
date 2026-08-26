@@ -24,6 +24,18 @@ BRAINART_ADMIN_USER e BRAINART_ADMIN_PASSWORD (senza, valgono i default
 "admin"/"brainart", validi solo per lo sviluppo locale — cambiali prima di
 usare questo prototipo a un evento reale).
 
+Il funzionamento BrainArt descritto sul sito prevede 6 passaggi; questo
+server copre digitalmente il 2° e 3° (rilevazione onde cerebrali ->
+elaborazione/visualizzazione, via eeg_source.py + signal_processing.py) e
+ora anche il 5° e 6°:
+  - /api/artwork/<id>.png  -> il quadro renderizzato ad alta risoluzione
+    (artwork_renderer.py), indipendente dallo schermo del partecipante:
+    è il file da mandare in stampa o da consegnare per i social.
+  - /s/<id>/print           -> pagina pronta per la stampa in loco, con lo
+    stesso file ad alta risoluzione impaginato per un pieghevole.
+Il 1° (stimolazione sensoriale) e il 4° (spiegazione a voce del quadro)
+restano passaggi condotti dal team durante l'evento, non digitali.
+
 Esecuzione:
     pip install -r requirements.txt
     export BRAINART_ADMIN_USER=... BRAINART_ADMIN_PASSWORD=...
@@ -42,6 +54,7 @@ import uuid
 import qrcode
 from flask import Flask, Response, abort, jsonify, request, send_file
 
+import artwork_renderer
 from eeg_source import SimulatedMuseSource
 from signal_processing import compute_metrics
 
@@ -142,6 +155,14 @@ def _generate_session_data():
     }
 
 
+def _get_session_or_404(session_id):
+    with _sessions_lock:
+        sessions = _load_sessions()
+    if session_id not in sessions:
+        abort(404, description=f"Sessione '{session_id}' non trovata")
+    return sessions[session_id]
+
+
 def _admin_authorized(auth):
     return (
         auth is not None
@@ -188,23 +209,14 @@ def create_session():
 @app.route("/api/session/<session_id>")
 def get_session(session_id):
     """Recupera una sessione già generata: la pagina resta identica ad ogni visita."""
-    with _sessions_lock:
-        sessions = _load_sessions()
-
-    if session_id not in sessions:
-        abort(404, description=f"Sessione '{session_id}' non trovata")
-
-    return jsonify({**sessions[session_id], "id": session_id})
+    data = _get_session_or_404(session_id)
+    return jsonify({**data, "id": session_id})
 
 
 @app.route("/api/qrcode/<session_id>")
 def session_qrcode(session_id):
     """Genera al volo il QR code che punta alla pagina personale della sessione."""
-    with _sessions_lock:
-        sessions = _load_sessions()
-
-    if session_id not in sessions:
-        abort(404, description=f"Sessione '{session_id}' non trovata")
+    _get_session_or_404(session_id)
 
     url = f"{request.url_root}s/{session_id}"
     img = qrcode.make(url, border=2)
@@ -213,6 +225,25 @@ def session_qrcode(session_id):
     img.save(buffer, format="PNG")
     buffer.seek(0)
     return send_file(buffer, mimetype="image/png")
+
+
+@app.route("/api/artwork/<session_id>.png")
+def session_artwork(session_id):
+    """Il quadro renderizzato ad alta risoluzione (passaggio 5 e 6: stampa e download social).
+
+    A differenza dello screenshot del canvas del browser, questo file ha
+    qualità e risoluzione costanti indipendentemente dal dispositivo del
+    partecipante, ed è ciò che il QR code dovrebbe davvero consegnare.
+    """
+    data = _get_session_or_404(session_id)
+    png_bytes = artwork_renderer.render_artwork_png_bytes(
+        data["asymmetry"], data["activation"], data["signature"], size=1600
+    )
+    return send_file(
+        io.BytesIO(png_bytes),
+        mimetype="image/png",
+        download_name=f"brainart-{session_id}.png",
+    )
 
 
 @app.errorhandler(404)
@@ -226,6 +257,12 @@ def handle_404(error):
 def dashboard_for_session(session_id):
     """Serve la pagina statica: l'id viene letto lato client dall'URL."""
     return app.send_static_file("index.html")
+
+
+@app.route("/s/<session_id>/print")
+def print_session(session_id):
+    """Pagina pronta per la stampa in loco (passaggio 5): l'id viene letto lato client."""
+    return app.send_static_file("print.html")
 
 
 @app.route("/admin")

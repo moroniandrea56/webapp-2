@@ -94,7 +94,12 @@
     padding: 8px;
     flex: none;
   }
-  .result-info { flex: 1; min-width: 0; }
+  .result-info { flex: 1; min-width: 220px; }
+
+  @media (max-width: 420px) {
+    .result { flex-direction: column; align-items: stretch; }
+    .result img { width: 100%; height: auto; max-width: 220px; margin: 0 auto; }
+  }
   .result-id {
     font-size: 11px;
     color: var(--text-faint);
@@ -139,6 +144,7 @@
 
   .result-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 12px;
   }
@@ -229,6 +235,8 @@
             <div class="result-actions">
               <button class="btn" id="copyLinkBtn" type="button">Copia link</button>
               <a class="btn" id="openLinkBtn" target="_blank" rel="noopener">Apri pagina</a>
+              <a class="btn" id="printLinkBtn" target="_blank" rel="noopener">Stampa</a>
+              <a class="btn" id="artworkLinkBtn" target="_blank" rel="noopener">Alta risoluzione</a>
             </div>
           </div>
         </div>
@@ -265,6 +273,8 @@
     linkEl.textContent = entry.url;
     linkEl.href = entry.url;
     document.getElementById("openLinkBtn").href = entry.url;
+    document.getElementById("printLinkBtn").href = `${entry.url}/print`;
+    document.getElementById("artworkLinkBtn").href = `/api/artwork/${entry.id}.png`;
   }
 
   function renderHistory() {

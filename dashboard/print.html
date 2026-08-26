@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BrainArt · Stampa</title>
+<style>
+  :root {
+    --bg: #08050f;
+    --card: #120b21;
+    --border: #2a2040;
+    --text: #f4f2fa;
+    --text-dim: #a89fc0;
+    --text-faint: #6f6689;
+    --accent: #9b7bff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 16px 56px;
+  }
+
+  .toolbar {
+    width: 100%;
+    max-width: 460px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 22px;
+  }
+  .wordmark { font-weight: 800; letter-spacing: 0.06em; font-size: 15px; }
+  .wordmark span { color: var(--accent); }
+  .toolbar-actions { display: flex; gap: 8px; }
+  .btn {
+    cursor: pointer;
+    border-radius: 999px;
+    padding: 9px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .btn:hover { background: rgba(255,255,255,0.08); border-color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #0a0612; }
+  .btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
+
+  .hint {
+    max-width: 460px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 12px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+  }
+
+  /* --- il "pieghevole": formato 10x15cm, tipico della stampa fotografica --- */
+  .print-card {
+    width: 100%;
+    max-width: 380px;
+    aspect-ratio: 100 / 150;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+  }
+  .print-art {
+    flex: 1;
+    min-height: 0;
+    display: block;
+    width: 100%;
+    object-fit: cover;
+    background: #000;
+  }
+  .print-footer {
+    padding: 16px 18px 18px;
+    background: #000;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .print-reading {
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 4px;
+  }
+  .print-reading strong { color: var(--accent); }
+  .print-brand {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(255,255,255,0.18);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    text-align: center;
+  }
+  .print-link {
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-align: center;
+    word-break: break-all;
+  }
+
+  .status {
+    color: var(--text-faint);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 0;
+  }
+
+  @media print {
+    @page { size: 100mm 150mm; margin: 0; }
+    .no-print { display: none !important; }
+    html, body {
+      background: #000;
+      padding: 0;
+      min-height: 0;
+      display: block;
+    }
+    .print-card {
+      max-width: none;
+      width: 100mm;
+      height: 150mm;
+      aspect-ratio: auto;
+      border-radius: 0;
+      box-shadow: none;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <div class="wordmark">BRAIN<span>ART</span></div>
+    <div class="toolbar-actions">
+      <a class="btn" id="backLink">Torna alla dashboard</a>
+      <button class="btn btn-primary" id="printBtn" type="button">Stampa</button>
+    </div>
+  </div>
+  <p class="hint no-print">
+    Formato 10×15 cm, pronto per la stampante fotografica dello stand.
+    Il riquadro tratteggiato è lo spazio riservato al brand del cliente.
+  </p>
+
+  <div id="content">
+    <div class="status">Caricamento del quadro…</div>
+  </div>
+
+<script>
+  function getSessionId() {
+    const match = window.location.pathname.match(/^\/s\/([a-zA-Z0-9]+)\/print\/?$/);
+    return match ? match[1] : null;
+  }
+
+  async function init() {
+    const id = getSessionId();
+    const content = document.getElementById("content");
+    document.getElementById("backLink").href = id ? `/s/${id}` : "/";
+
+    if (!id) {
+      content.innerHTML = '<div class="status">Nessuna sessione indicata nell\'URL.</div>';
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/session/${id}`);
+      if (!res.ok) throw new Error(`sessione non trovata (${res.status})`);
+      const session = await res.json();
+
+      const personalUrl = `${window.location.origin}/s/${id}`;
+      content.innerHTML = `
+        <div class="print-card">
+          <img class="print-art" src="/api/artwork/${id}.png" alt="Il tuo quadro BrainArt" />
+          <div class="print-footer">
+            <div class="print-reading">La tua lettura &middot; <strong>${session.readingLabel}</strong></div>
+            <div class="print-brand">Il tuo brand qui</div>
+            <div class="print-link">${personalUrl}</div>
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      content.innerHTML = '<div class="status">Impossibile caricare questa sessione.</div>';
+      console.error(err);
+    }
+  }
+
+  document.getElementById("printBtn").addEventListener("click", () => window.print());
+  init();
+</script>
+</body>
+</html>

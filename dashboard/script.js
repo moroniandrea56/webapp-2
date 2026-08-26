@@ -199,7 +199,7 @@ function initCanvases(session) {
   });
 }
 
-function initInteractions() {
+function initInteractions(session) {
   const howToRead = document.getElementById("howToRead");
   const howToReadPanel = document.getElementById("howToReadPanel");
   howToRead.addEventListener("click", () => {
@@ -216,32 +216,56 @@ function initInteractions() {
     );
   });
 
-  document.getElementById("downloadBtn").addEventListener("click", () => {
+  // Quando esiste una sessione persistente (session.id), il download/condivisione
+  // usa /api/artwork/<id>.png: il quadro renderizzato lato server ad alta
+  // risoluzione (passaggio 6 del funzionamento BrainArt), non lo screenshot del
+  // canvas del browser — che dipende dallo schermo e non è adatto ai social.
+  // Con i dati di esempio (nessun id) resta il fallback dell'export dal canvas.
+  const artworkUrl = session.id ? `/api/artwork/${session.id}.png` : null;
+  const artworkFilename = session.id ? `brainart-${session.id}.png` : "il-tuo-quadro-brainart.png";
+
+  async function getArtworkBlob() {
+    if (artworkUrl) {
+      const res = await fetch(artworkUrl);
+      if (!res.ok) throw new Error(`render alta risoluzione non disponibile (${res.status})`);
+      return await res.blob();
+    }
     const canvas = document.getElementById("artCanvas");
-    const link = document.createElement("a");
-    link.download = "il-tuo-quadro-brainart.png";
-    link.href = canvas.toDataURL("image/png");
-    link.click();
+    return await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  }
+
+  document.getElementById("downloadBtn").addEventListener("click", async () => {
+    try {
+      const blob = await getArtworkBlob();
+      const link = document.createElement("a");
+      link.download = artworkFilename;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 4000);
+    } catch (err) {
+      console.error(err);
+      alert("Impossibile scaricare il quadro in questo momento.");
+    }
   });
 
   document.getElementById("shareBtn").addEventListener("click", async () => {
-    const canvas = document.getElementById("artCanvas");
-    canvas.toBlob(async (blob) => {
-      const file = new File([blob], "il-tuo-quadro-brainart.png", { type: "image/png" });
+    try {
+      const blob = await getArtworkBlob();
+      const file = new File([blob], artworkFilename, { type: "image/png" });
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({
-            files: [file],
-            title: "Il mio quadro BrainArt",
-            text: "Mind Made Art — la mia sessione BrainArt",
-          });
-        } catch (err) {
-          // utente ha annullato la condivisione: nessuna azione necessaria
-        }
+        await navigator.share({
+          files: [file],
+          title: "Il mio quadro BrainArt",
+          text: "Mind Made Art — la mia sessione BrainArt",
+        });
       } else {
         alert("Condivisione non supportata da questo browser: usa 'Scarica qui' e carica l'immagine manualmente.");
       }
-    }, "image/png");
+    } catch (err) {
+      if (err && err.name === "AbortError") return; // utente ha annullato la condivisione
+      console.error(err);
+      alert("Impossibile preparare il quadro da condividere in questo momento.");
+    }
   });
 }
 
@@ -273,7 +297,7 @@ async function bootstrap() {
   const session = await loadSession();
   populateText(session);
   initCanvases(session);
-  initInteractions();
+  initInteractions(session);
   initPersonalLink(session);
 }
 
