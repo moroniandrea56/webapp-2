@@ -76,6 +76,39 @@
     font-weight: 700;
     margin: 0 0 4px;
   }
+  .form-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 4px;
+  }
+  .form-title-row .form-title { margin: 0; }
+  .eeg-source-badge {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .eeg-source-badge.real {
+    color: #35d68f;
+    border-color: rgba(53, 214, 143, 0.4);
+    background: rgba(53, 214, 143, 0.08);
+  }
+  .eeg-source-badge.simulated {
+    color: var(--text-dim);
+    background: rgba(255,255,255,0.03);
+  }
+  .eeg-source-badge.misconfigured {
+    color: var(--danger);
+    border-color: rgba(255, 107, 107, 0.4);
+    background: rgba(255, 107, 107, 0.08);
+  }
   .form-lede {
     color: var(--text-faint);
     font-size: 12px;
@@ -426,7 +459,10 @@
     ogni visita successiva.</p>
 
     <div class="card">
-      <p class="form-title">Tipo di esperienza</p>
+      <div class="form-title-row">
+        <p class="form-title">Tipo di esperienza</p>
+        <span class="eeg-source-badge" id="eegSourceBadge">Sorgente dati: verifica in corso…</span>
+      </div>
       <p class="form-lede">Lo stimolo proposto al partecipante prima della rilevazione:
       titoli ed etichette della sua dashboard si adattano di conseguenza. Puoi anche
       impostare a mano la durata della sessione, invece di lasciarla automatica.</p>
@@ -588,6 +624,20 @@ Diritti dell'interessato: accesso, rettifica, cancellazione, limitazione o oppos
 Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazione del servizio (es. fornitore della stampa in loco).`;
   }
 
+  function updateEegSourceBadge(config) {
+    const badge = document.getElementById("eegSourceBadge");
+    if (config.eegSource === "muse" && config.museAddressConfigured) {
+      badge.textContent = "Bracciale Muse collegato · dati reali";
+      badge.className = "eeg-source-badge real";
+    } else if (config.eegSource === "muse") {
+      badge.textContent = "Muse selezionato ma indirizzo mancante";
+      badge.className = "eeg-source-badge misconfigured";
+    } else {
+      badge.textContent = "Dati simulati · nessun bracciale collegato";
+      badge.className = "eeg-source-badge simulated";
+    }
+  }
+
   async function initPrivacyNotice() {
     const toggle = document.getElementById("privacyToggle");
     const panel = document.getElementById("privacyPanel");
@@ -603,8 +653,10 @@ Comunicazione a terzi: nessuna, salvo quanto strettamente necessario all'erogazi
       const res = await fetch("/api/config");
       const config = await res.json();
       textEl.textContent = buildPrivacyText(config);
+      updateEegSourceBadge(config);
     } catch (err) {
       textEl.textContent = "Impossibile caricare l'informativa privacy: server non raggiungibile.";
+      document.getElementById("eegSourceBadge").textContent = "Sorgente dati: non verificabile";
       console.error(err);
     }
   }

@@ -109,15 +109,34 @@ def test_parse_stimulus_ignores_invalid_duration():
     assert duration is None
 
 
-# --- rilevazione EEG simulata continua -------------------------------------------
+# --- rilevazione EEG continua (simulata di default) -------------------------------
 
-def test_record_simulated_eeg_duration_matches_stimulus_range():
+def test_record_eeg_duration_matches_stimulus_range():
     low, high = server.DURATION_RANGES_SECONDS["fragranza"]
-    metrics, duration = server._record_simulated_eeg("fragranza")
+    metrics, duration = server._record_eeg("fragranza")
     assert low <= duration <= high
     assert set(metrics.keys()) == {"asymmetry", "activation", "signature"}
 
 
-def test_record_simulated_eeg_honors_explicit_duration():
-    _, duration = server._record_simulated_eeg("lettura", duration_seconds=15)
+def test_record_eeg_honors_explicit_duration():
+    _, duration = server._record_eeg("lettura", duration_seconds=15)
     assert duration == 15
+
+
+def test_record_eeg_ignores_real_device_flag_when_source_is_simulated():
+    # BRAINART_EEG_SOURCE non è "muse" nell'ambiente di test: anche chiedendo
+    # real_device=True deve restare sulla sorgente simulata, non tentare una
+    # connessione Bluetooth reale (che fallirebbe comunque in CI).
+    metrics, duration = server._record_eeg("lettura", duration_seconds=5, real_device=True)
+    assert duration == 5
+    assert set(metrics.keys()) == {"asymmetry", "activation", "signature"}
+
+
+def test_record_eeg_requires_muse_address_when_source_is_muse(monkeypatch):
+    monkeypatch.setattr(server, "EEG_SOURCE_MODE", "muse")
+    monkeypatch.setattr(server, "MUSE_ADDRESS", None)
+    try:
+        server._record_eeg("lettura", duration_seconds=5, real_device=True)
+        assert False, "doveva sollevare RuntimeError senza BRAINART_MUSE_ADDRESS"
+    except RuntimeError as err:
+        assert "BRAINART_MUSE_ADDRESS" in str(err)

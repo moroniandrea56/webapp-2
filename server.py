@@ -16,15 +16,24 @@ l'evento: ricaricare o condividere il link non genera una nuova opera.
 Chi aveva già un data/sessions.json da una versione precedente può
 importarlo con `python3 migrate_json_to_sqlite.py`, una tantum.
 
-La rilevazione EEG è simulata ma CONTINUA (_record_simulated_eeg): invece
-di un singolo chunk istantaneo, concatena un chunk al secondo — che
-SimulatedMuseSource fa ciclare tra i suoi stati mentali simulati — per
-tutta la durata dell'esperienza (variabile per tipo di stimolo, vedi
-DURATION_RANGES_SECONDS), e calcola le metriche sull'intera registrazione.
-La durata usata diventa anche il valore "minuti" mostrato in dashboard,
-invece di un numero fittizio scollegato dalla simulazione. Quando arriverà
-il Muse reale, basterà sostituire SimulatedMuseSource con la sorgente vera:
-il resto della pipeline non cambia.
+La rilevazione EEG è CONTINUA (_record_eeg): concatena un chunk al secondo
+per tutta la durata dell'esperienza (variabile per tipo di stimolo, vedi
+DURATION_RANGES_SECONDS) e calcola le metriche sull'intera registrazione.
+La durata usata diventa anche il valore "minuti" mostrato in dashboard.
+
+La sorgente dei dati dipende da BRAINART_EEG_SOURCE:
+  - "simulato" (default): SimulatedMuseSource (eeg_source.py) genera dati
+    plausibili ma finti — utile per sviluppo/demo senza un bracciale a
+    disposizione, o per le sessioni che la pagina partecipante crea da
+    sola al primo accesso senza passare dal pannello operatore.
+  - "muse": MuseEEGSource (muse_source.py) si connette DAVVERO a un
+    bracciale/cuffiette Muse via Bluetooth (indirizzo in
+    BRAINART_MUSE_ADDRESS, trovabile con `python3 scan_devices.py`) e
+    legge i campioni EEG reali trasmessi dal dispositivo — usata solo
+    quando l'operatore avvia la sessione dal pannello con i dati di un
+    partecipante, mai per le sessioni auto-create della pagina pubblica.
+    Se il dispositivo non risponde, l'operatore riceve un errore chiaro
+    invece di un quadro basato su dati finti.
 
 Il pannello operatore (/admin) è pensato per lo staff durante l'evento: un
 tasto "nuova sessione" genera l'id, e /api/qrcode/<id> ne renderizza il QR
@@ -94,6 +103,7 @@ Esecuzione:
     export BRAINART_OSC_IP=... BRAINART_OSC_PORT=...   # opzionale
     export BRAINART_SMTP_HOST=... BRAINART_SMTP_USER=... BRAINART_SMTP_PASSWORD=...  # opzionale
     export BRAINART_RETENTION_MONTHS=...  # opzionale, default 12
+    export BRAINART_EEG_SOURCE=muse BRAINART_MUSE_ADDRESS=...  # opzionale, per un bracciale Muse reale
     python3 server.py
     apri http://localhost:5000        (dashboard partecipante)
     apri http://localhost:5000/admin  (pannello operatore, richiede login)
@@ -114,6 +124,7 @@ import artwork_renderer
 import db
 import email_sender
 from eeg_source import SimulatedMuseSource
+from muse_source import MuseEEGSource
 from osc_sender import OSCSender
 from signal_processing import compute_metrics
 
@@ -138,6 +149,13 @@ DATA_CONTROLLER_EMAIL = os.environ.get("BRAINART_DATA_CONTROLLER_EMAIL", "privac
 OSC_IP = os.environ.get("BRAINART_OSC_IP", "127.0.0.1")
 OSC_PORT = int(os.environ.get("BRAINART_OSC_PORT", "9000"))
 _osc = OSCSender(ip=OSC_IP, port=OSC_PORT)
+
+# "simulato" (default) o "muse": vedi il paragrafo sulla rilevazione EEG
+# nel docstring del modulo. Il confronto è case-insensitive e tollera spazi
+# per non far fallire silenziosamente una variabile d'ambiente scritta un
+# po' diversa (es. "Muse" o " muse ").
+EEG_SOURCE_MODE = os.environ.get("BRAINART_EEG_SOURCE", "simulato").strip().lower()
+MUSE_ADDRESS = os.environ.get("BRAINART_MUSE_ADDRESS", "").strip() or None
 
 # Il "come funziona" ufficiale prevede più tipi di stimolazione sensoriale,
 # non solo la lettura: ogni voce guida i titoli e le etichette che la
@@ -262,36 +280,55 @@ def _build_quadro_explanation(asymmetry, activation, signature):
     )
 
 
-def _record_simulated_eeg(stimulus_type, duration_seconds=None):
-    """Simula una rilevazione EEG CONTINUA per tutta la durata dell'esperienza,
-    invece di un singolo chunk istantaneo: concatena un chunk al secondo (che
-    SimulatedMuseSource fa ciclare tra i suoi stati mentali simulati) per la
-    durata scelta in base al tipo di stimolo, poi calcola le metriche
-    sull'intera registrazione — più fedele a una rilevazione "in tempo reale"
-    lungo tutta l'esperienza che a un'istantanea di un secondo.
+def _record_eeg(stimulus_type, duration_seconds=None, real_device=False):
+    """Registra una rilevazione EEG CONTINUA per tutta la durata
+    dell'esperienza e ne calcola le metriche sull'intera registrazione —
+    più fedele a una rilevazione "in tempo reale" lungo tutta l'esperienza
+    che a un'istantanea di un secondo.
 
     Se duration_seconds è None, la durata è casuale nel range tipico del
     tipo di stimolo (DURATION_RANGES_SECONDS); se l'operatore ne ha scelta
     una esplicitamente, si usa quella (già validata da _parse_stimulus).
 
-    Restituisce (metrics, duration_seconds).
+    Se real_device è True (e BRAINART_EEG_SOURCE=muse), i dati vengono letti
+    DAVVERO da un bracciale/cuffiette Muse via Bluetooth (MuseEEGSource,
+    connesso una sola volta per l'intera durata); altrimenti la sorgente è
+    SimulatedMuseSource, che genera un chunk al secondo con dati plausibili
+    ma finti, ciclando tra alcuni "stati mentali" simulati.
+
+    Restituisce (metrics, duration_seconds). Con la sorgente reale, un
+    guasto di connessione fa risalire il RuntimeError di MuseEEGSource
+    invece di restituire dati finti: chi ha avviato la sessione deve
+    saperlo subito.
     """
     if duration_seconds is None:
         low, high = DURATION_RANGES_SECONDS.get(stimulus_type, DURATION_RANGES_SECONDS[DEFAULT_STIMULUS_TYPE])
         duration_seconds = random.randint(low, high)
 
-    eeg = SimulatedMuseSource(seed=random.randint(0, 1_000_000))
-    chunks = [eeg.get_chunk(n_samples=eeg.SAMPLE_RATE)[0] for _ in range(duration_seconds)]
-    full_recording = np.concatenate(chunks, axis=1)
+    if real_device and EEG_SOURCE_MODE == "muse":
+        if not MUSE_ADDRESS:
+            raise RuntimeError(
+                "BRAINART_EEG_SOURCE=muse ma manca BRAINART_MUSE_ADDRESS: esegui "
+                "'python3 scan_devices.py' con il bracciale acceso e vicino per "
+                "trovare il suo indirizzo, poi impostalo prima di avviare il server."
+            )
+        eeg = MuseEEGSource(MUSE_ADDRESS)
+        full_recording, _ = eeg.get_chunk(n_samples=duration_seconds * eeg.SAMPLE_RATE)
+    else:
+        eeg = SimulatedMuseSource(seed=random.randint(0, 1_000_000))
+        chunks = [eeg.get_chunk(n_samples=eeg.SAMPLE_RATE)[0] for _ in range(duration_seconds)]
+        full_recording = np.concatenate(chunks, axis=1)
 
     return compute_metrics(full_recording, eeg.CHANNELS), duration_seconds
 
 
-def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail="", duration_seconds=None):
-    """Simula una nuova sessione e ne calcola le metriche, per il tipo di
+def _generate_session_data(stimulus_type=DEFAULT_STIMULUS_TYPE, stimulus_detail="", duration_seconds=None, real_device=False):
+    """Genera una nuova sessione e ne calcola le metriche, per il tipo di
     stimolo indicato (lettura, musica, degustazione, fragranza, prodotto).
-    duration_seconds, se indicata, sovrascrive la durata casuale automatica."""
-    metrics, duration_seconds = _record_simulated_eeg(stimulus_type, duration_seconds)
+    duration_seconds, se indicata, sovrascrive la durata casuale automatica.
+    real_device, se True, legge i dati da un bracciale Muse reale invece di
+    simularli (vedi _record_eeg)."""
+    metrics, duration_seconds = _record_eeg(stimulus_type, duration_seconds, real_device=real_device)
 
     asymmetry = metrics["asymmetry"]
     activation = metrics["activation"]
@@ -462,11 +499,15 @@ def _require_admin_login():
 
 @app.route("/api/config")
 def config():
-    """Dati non sensibili di configurazione, usati per popolare l'informativa privacy."""
+    """Dati non sensibili di configurazione, usati per popolare l'informativa
+    privacy e per mostrare all'operatore se la rilevazione userà un
+    bracciale Muse reale o dati simulati."""
     return jsonify({
         "dataControllerName": DATA_CONTROLLER_NAME,
         "dataControllerEmail": DATA_CONTROLLER_EMAIL,
         "retentionMonths": RETENTION_MONTHS,
+        "eegSource": EEG_SOURCE_MODE,
+        "museAddressConfigured": MUSE_ADDRESS is not None,
     })
 
 
@@ -479,6 +520,11 @@ def create_session():
     validato e salvato insieme alla sessione. Se non presente, si comporta
     come prima: nessun dato personale, nessuna validazione (lo usa anche la
     pagina partecipante per crearsi da sola una sessione al primo accesso).
+
+    La rilevazione EEG legge davvero dal bracciale Muse (invece dei dati
+    simulati) solo quando c'è un customer, cioè solo per le sessioni avviate
+    dall'operatore dal pannello: una sessione auto-creata dalla pagina
+    pubblica non deve mai far scattare una connessione Bluetooth reale.
     """
     body = request.get_json(silent=True)
     customer, error = _parse_customer(body)
@@ -486,7 +532,12 @@ def create_session():
         return jsonify({"error": error}), 400
 
     stimulus_type, stimulus_detail, duration_seconds = _parse_stimulus(body)
-    payload = _generate_session_data(stimulus_type, stimulus_detail, duration_seconds)
+    try:
+        payload = _generate_session_data(
+            stimulus_type, stimulus_detail, duration_seconds, real_device=customer is not None
+        )
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 502
     payload["customer"] = customer
     payload["createdAt"] = datetime.now(timezone.utc).isoformat()
     session_id = uuid.uuid4().hex[:10]

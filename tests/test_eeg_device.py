@@ -1,25 +1,19 @@
-"""Test per eeg_device.py: il contratto EEGSource e lo scaffold del dispositivo
-reale. I test sulla scansione Bluetooth simulano bleak (via monkeypatch) invece
-di dipendere da un vero adattatore, così restano deterministici su qualunque
-macchina esegua la suite (con o senza Bluetooth fisico)."""
+"""Test per eeg_device.py: il contratto EEGSource comune a sorgenti simulate
+e reali. I test sulla scansione Bluetooth simulano bleak (via monkeypatch)
+invece di dipendere da un vero adattatore, così restano deterministici su
+qualunque macchina esegua la suite (con o senza Bluetooth fisico). Il
+dispositivo reale scelto (Muse) ha la sua sorgente in muse_source.py, con
+i propri test in tests/test_muse_source.py."""
 
 import pytest
 
 import eeg_device
-from eeg_device import BluetoothEEGSource, EEGSource, list_bluetooth_devices
+from eeg_device import EEGSource, list_bluetooth_devices
 
 
 def test_eeg_source_cannot_be_instantiated_directly():
     with pytest.raises(TypeError):
         EEGSource()
-
-
-def test_bluetooth_source_is_instantiable_but_not_functional_yet():
-    src = BluetoothEEGSource(address="AA:BB:CC:DD:EE:FF")
-    with pytest.raises(NotImplementedError):
-        src.connect()
-    with pytest.raises(NotImplementedError):
-        src.get_chunk(256)
 
 
 def test_list_bluetooth_devices_wraps_missing_dependency(monkeypatch):
