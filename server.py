@@ -18,13 +18,18 @@ cambia.
 Il pannello operatore (/admin) è pensato per lo staff durante l'evento: un
 tasto "nuova sessione" genera l'id, e /api/qrcode/<id> ne renderizza il QR
 già puntato alla pagina personale, pronto da mostrare o stampare per il
-partecipante.
+partecipante. Il pannello e il suo endpoint QR sono protetti da HTTP Basic
+Auth: le credenziali si impostano con le variabili d'ambiente
+BRAINART_ADMIN_USER e BRAINART_ADMIN_PASSWORD (senza, valgono i default
+"admin"/"brainart", validi solo per lo sviluppo locale — cambiali prima di
+usare questo prototipo a un evento reale).
 
 Esecuzione:
     pip install -r requirements.txt
+    export BRAINART_ADMIN_USER=... BRAINART_ADMIN_PASSWORD=...
     python3 server.py
     apri http://localhost:5000       (dashboard partecipante)
-    apri http://localhost:5000/admin (pannello operatore)
+    apri http://localhost:5000/admin (pannello operatore, richiede login)
 """
 
 import io
@@ -35,7 +40,7 @@ import threading
 import uuid
 
 import qrcode
-from flask import Flask, abort, jsonify, request, send_file
+from flask import Flask, Response, abort, jsonify, request, send_file
 
 from eeg_source import SimulatedMuseSource
 from signal_processing import compute_metrics
@@ -45,6 +50,12 @@ app = Flask(__name__, static_folder="dashboard", static_url_path="")
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 _sessions_lock = threading.Lock()
+
+ADMIN_USERNAME = os.environ.get("BRAINART_ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.environ.get("BRAINART_ADMIN_PASSWORD", "brainart")
+_USING_DEFAULT_ADMIN_CREDENTIALS = (
+    "BRAINART_ADMIN_USER" not in os.environ or "BRAINART_ADMIN_PASSWORD" not in os.environ
+)
 
 QUOTES = [
     "Mi prometto ogni tramonto che il desiderio di non lasciarsi sfuggire i momenti "
@@ -131,6 +142,35 @@ def _generate_session_data():
     }
 
 
+def _admin_authorized(auth):
+    return (
+        auth is not None
+        and auth.username == ADMIN_USERNAME
+        and auth.password == ADMIN_PASSWORD
+    )
+
+
+@app.before_request
+def _require_admin_login():
+    """Protegge il pannello operatore e il suo endpoint QR con HTTP Basic Auth.
+
+    La dashboard partecipante (/, /s/<id>, /api/session) resta pubblica: la
+    protezione riguarda solo la superficie usata dallo staff dell'evento.
+    """
+    is_admin_route = request.path == "/admin" or request.path == "/admin.html"
+    is_admin_api = request.path.startswith("/api/qrcode/")
+    if not (is_admin_route or is_admin_api):
+        return None
+
+    if not _admin_authorized(request.authorization):
+        return Response(
+            "Accesso al pannello operatore: credenziali richieste.",
+            401,
+            {"WWW-Authenticate": 'Basic realm="BrainArt Admin"'},
+        )
+    return None
+
+
 @app.route("/api/session", methods=["POST"])
 def create_session():
     """Crea una nuova sessione e la rende persistente con un id stabile."""
@@ -200,4 +240,10 @@ def index():
 
 
 if __name__ == "__main__":
+    if _USING_DEFAULT_ADMIN_CREDENTIALS:
+        print(
+            "ATTENZIONE: /admin usa le credenziali di default (admin / brainart). "
+            "Impostale con BRAINART_ADMIN_USER e BRAINART_ADMIN_PASSWORD prima di "
+            "usare questo prototipo a un evento reale."
+        )
     app.run(debug=True, port=5000)
