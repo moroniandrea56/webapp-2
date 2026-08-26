@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>BrainArt · Dashboard</title>
-<link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="app">
@@ -112,6 +112,14 @@
         </div>
       </section>
 
+      <div class="personal-link" id="personalLink" hidden>
+        <span>La tua pagina personale</span>
+        <div class="link-row">
+          <code id="personalLinkUrl"></code>
+          <button id="copyLinkBtn" class="btn btn-outline btn-small">Copia link</button>
+        </div>
+      </div>
+
       <footer class="footnote">
         Dati generati dal prototipo <code>signal_processing.py</code> · asymmetry / activation / signature
       </footer>
@@ -119,6 +127,6 @@
     </main>
   </div>
 
-<script src="script.js"></script>
+<script src="/script.js"></script>
 </body>
 </html>

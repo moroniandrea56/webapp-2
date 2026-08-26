@@ -114,14 +114,33 @@ function makeBlobPainter(canvas, { asymmetry, activation, signature, hueOverride
 /* Caricamento sessione                                                   */
 /* ---------------------------------------------------------------------- */
 
+function getSessionIdFromLocation() {
+  const pathMatch = window.location.pathname.match(/^\/s\/([a-zA-Z0-9]+)\/?$/);
+  if (pathMatch) return pathMatch[1];
+  return new URLSearchParams(window.location.search).get("s");
+}
+
 async function loadSession() {
+  const existingId = getSessionIdFromLocation();
+
   try {
-    const res = await fetch("/api/session");
-    if (!res.ok) throw new Error(`risposta ${res.status} da /api/session`);
-    return await res.json();
+    if (existingId) {
+      // sessione già esistente (link personale riaperto): stessa identica pagina.
+      const res = await fetch(`/api/session/${existingId}`);
+      if (!res.ok) throw new Error(`sessione '${existingId}' non trovata (${res.status})`);
+      return await res.json();
+    }
+
+    // prima visita: crea una sessione persistente e "fissa" l'URL su di essa,
+    // così un reload o la condivisione del link non ne generano una nuova.
+    const res = await fetch("/api/session", { method: "POST" });
+    if (!res.ok) throw new Error(`creazione sessione fallita (${res.status})`);
+    const data = await res.json();
+    window.history.replaceState(null, "", `/s/${data.id}`);
+    return data;
   } catch (err) {
     console.warn(
-      "Impossibile contattare /api/session (server.py non in esecuzione?): " +
+      "Impossibile contattare il backend (server.py non in esecuzione?): " +
       "uso i dati di esempio.",
       err
     );
@@ -226,11 +245,36 @@ function initInteractions() {
   });
 }
 
+function initPersonalLink(session) {
+  if (!session.id) return; // dati di fallback: nessuna sessione persistente da linkare
+
+  const wrap = document.getElementById("personalLink");
+  const urlEl = document.getElementById("personalLinkUrl");
+  const copyBtn = document.getElementById("copyLinkBtn");
+  const url = `${window.location.origin}/s/${session.id}`;
+
+  urlEl.textContent = url;
+  wrap.hidden = false;
+
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch (err) {
+      window.prompt("Copia questo link:", url);
+      return;
+    }
+    const original = copyBtn.textContent;
+    copyBtn.textContent = "Copiato!";
+    setTimeout(() => { copyBtn.textContent = original; }, 1500);
+  });
+}
+
 async function bootstrap() {
   const session = await loadSession();
   populateText(session);
   initCanvases(session);
   initInteractions();
+  initPersonalLink(session);
 }
 
 document.addEventListener("DOMContentLoaded", bootstrap);
